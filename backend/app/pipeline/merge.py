@@ -13,12 +13,38 @@ from app.pipeline.cloud_llm import CloudLLMClient, load_prompt_file
 
 logger = logging.getLogger(__name__)
 
+C1_CHUNK_CHAR_LIMIT = 5000
+
 
 def _estimate_max_tokens(payload_chars: int) -> int:
     """Output needs room for the full corrected JSON; Chinese ≈ ~1–2 chars/token."""
     # Roughly 1.5× input size in tokens, clamped.
     estimate = max(4096, int(payload_chars * 1.2) + 1024)
     return min(estimate, 65536)
+
+
+def _chunk_by_text_length(
+    segments: list[dict[str, Any]], max_chars: int = C1_CHUNK_CHAR_LIMIT
+) -> list[list[dict[str, Any]]]:
+    """Group segments so each chunk's total text stays under max_chars.
+
+    A chunk boundary only ever falls between segments — a segment's text is
+    never split mid-way, even if that single segment alone exceeds max_chars.
+    """
+    chunks: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_chars = 0
+    for seg in segments:
+        text_len = len(seg.get("text") or "")
+        if current and current_chars + text_len > max_chars:
+            chunks.append(current)
+            current = []
+            current_chars = 0
+        current.append(seg)
+        current_chars += text_len
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def _utc_now() -> str:
@@ -83,55 +109,82 @@ async def correct_transcript(
             "model": None,
         }
 
+    if not segments:
+        return segments, {"status": "skipped", "reason": "no_segments", "model": None}
+
     system = load_prompt_file(settings, "transcript_correction.txt")
     if on_progress:
         on_progress("逐字稿校稿", 82)
-    payload = [
-        {"start": s["start"], "end": s["end"], "text": s["text"]}
-        for s in segments
-    ]
-    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    chunks = _chunk_by_text_length(segments)
     logger.info(
-        "C1 single-shot (%s segs, %s chars)",
+        "C1 chunked (%s segs, %s chunks, limit=%s chars)",
         len(segments),
-        len(payload_json),
+        len(chunks),
+        C1_CHUNK_CHAR_LIMIT,
     )
-    user = (
-        "請校正以下整篇逐字稿 JSON 陣列中每個 segment 的 text。"
-        "必須一次回傳完整同樣結構的 JSON 陣列，保留 start/end 不變，"
-        "不可省略任何 segment。\n\n"
-        + payload_json
-    )
-    result = await client.complete(
-        system=system,
-        user=user,
-        purpose="c1",
-        video_id=video_id,
-        max_tokens=_estimate_max_tokens(len(payload_json)),
-    )
-    try:
-        fixed = _extract_json(result.text)
-        if isinstance(fixed, dict) and "segments" in fixed:
-            fixed = fixed["segments"]
-        if not isinstance(fixed, list) or len(fixed) != len(segments):
-            raise ValueError(
-                f"C1 returned {len(fixed) if isinstance(fixed, list) else type(fixed)} "
-                f"items, expected {len(segments)}"
-            )
-        return (
-            [
-                {**orig, "text": new.get("text", orig["text"])}
-                for orig, new in zip(segments, fixed)
-            ],
-            {"status": "ok", "reason": None, "model": result.model},
+
+    fixed_all: list[dict[str, Any]] = []
+    model_used: str | None = None
+    any_ok = False
+    for i, chunk in enumerate(chunks, start=1):
+        payload = [
+            {"start": s["start"], "end": s["end"], "text": s["text"]}
+            for s in chunk
+        ]
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        logger.info(
+            "C1 chunk %s/%s (%s segs, %s chars)",
+            i,
+            len(chunks),
+            len(chunk),
+            len(payload_json),
         )
-    except Exception:
-        logger.exception("C1 parse failed; keeping original transcript")
-        return segments, {
-            "status": "failed",
-            "reason": "parse_failed",
-            "model": result.model,
-        }
+        if on_progress and len(chunks) > 1:
+            # Spread progress across 82–89% so the UI visibly advances chunk
+            # by chunk instead of sitting frozen on a flat number.
+            step_progress = 82 + round((i - 1) / len(chunks) * 7)
+            on_progress(f"逐字稿校稿（{i}/{len(chunks)}）", step_progress)
+        user = (
+            "請校正以下逐字稿 JSON 陣列中每個 segment 的 text。"
+            "必須一次回傳完整同樣結構的 JSON 陣列，保留 start/end 不變，"
+            "不可省略任何 segment。\n\n"
+            + payload_json
+        )
+        try:
+            result = await client.complete(
+                system=system,
+                user=user,
+                purpose="c1",
+                video_id=video_id,
+                max_tokens=_estimate_max_tokens(len(payload_json)),
+            )
+            fixed = _extract_json(result.text)
+            if isinstance(fixed, dict) and "segments" in fixed:
+                fixed = fixed["segments"]
+            if not isinstance(fixed, list) or len(fixed) != len(chunk):
+                raise ValueError(
+                    f"C1 chunk {i}/{len(chunks)} returned "
+                    f"{len(fixed) if isinstance(fixed, list) else type(fixed)} items, "
+                    f"expected {len(chunk)}"
+                )
+            fixed_all.extend(
+                {**orig, "text": new.get("text", orig["text"])}
+                for orig, new in zip(chunk, fixed)
+            )
+            model_used = result.model
+            any_ok = True
+        except Exception:
+            logger.exception(
+                "C1 chunk %s/%s failed; keeping original text for this chunk",
+                i,
+                len(chunks),
+            )
+            fixed_all.extend(chunk)
+
+    status = "ok" if any_ok else "failed"
+    reason = None if any_ok else "parse_failed"
+    return fixed_all, {"status": status, "reason": reason, "model": model_used}
 
 
 async def correct_frames(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -11,6 +12,10 @@ from app.db.sqlite_store import SQLiteStore
 from app.pipeline.errors import CloudLlmFailedError
 
 logger = logging.getLogger(__name__)
+
+RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE_SECONDS = 2.0
 
 
 @dataclass
@@ -68,22 +73,57 @@ class CloudLLMClient:
                 "cursor_force_output_format": "json",
             }
 
-        try:
-            logger.info(
-                "Cloud LLM request purpose=%s model=%s url=%s chars=%s",
-                purpose,
-                payload["model"],
-                url,
-                len(system) + len(user),
-            )
-            # Cursor CLI via bridge can be slow on cold start / binary download
-            async with httpx.AsyncClient(timeout=600.0) as client:
-                resp = await client.post(url, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-            logger.info("Cloud LLM done purpose=%s status=%s", purpose, resp.status_code)
-        except Exception as exc:
-            raise CloudLlmFailedError(str(exc)) from exc
+        data: dict[str, Any] | None = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                logger.info(
+                    "Cloud LLM request purpose=%s model=%s url=%s chars=%s attempt=%s/%s",
+                    purpose,
+                    payload["model"],
+                    url,
+                    len(system) + len(user),
+                    attempt,
+                    MAX_RETRIES,
+                )
+                # Cursor CLI via bridge can be slow on cold start / binary download
+                async with httpx.AsyncClient(timeout=600.0) as client:
+                    resp = await client.post(url, json=payload, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+                logger.info(
+                    "Cloud LLM done purpose=%s status=%s", purpose, resp.status_code
+                )
+                break
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status not in RETRYABLE_STATUS_CODES or attempt == MAX_RETRIES:
+                    raise CloudLlmFailedError(str(exc)) from exc
+                wait = RETRY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                logger.warning(
+                    "Cloud LLM purpose=%s got %s (attempt %s/%s); retrying in %.1fs",
+                    purpose,
+                    status,
+                    attempt,
+                    MAX_RETRIES,
+                    wait,
+                )
+                await asyncio.sleep(wait)
+            except httpx.RequestError as exc:
+                if attempt == MAX_RETRIES:
+                    raise CloudLlmFailedError(str(exc)) from exc
+                wait = RETRY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                logger.warning(
+                    "Cloud LLM purpose=%s connection error (attempt %s/%s): %s; "
+                    "retrying in %.1fs",
+                    purpose,
+                    attempt,
+                    MAX_RETRIES,
+                    exc,
+                    wait,
+                )
+                await asyncio.sleep(wait)
+            except Exception as exc:
+                raise CloudLlmFailedError(str(exc)) from exc
 
         text = data["choices"][0]["message"]["content"]
         usage = data.get("usage") or {}

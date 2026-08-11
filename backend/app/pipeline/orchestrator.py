@@ -178,7 +178,8 @@ class PipelineOrchestrator:
             }
         else:
             self._set_stage(video_id, "extracting", 20)
-            extract_info = run_extract(
+            extract_info = await asyncio.to_thread(
+                run_extract,
                 work_dir=work_dir,
                 media_path=media_path,
                 media_type=media_type,
@@ -343,8 +344,11 @@ class PipelineOrchestrator:
             if cookie_path:
                 self.settings.youtube_cookies_file = str(cookie_path)
             try:
-                meta = normalize_from_youtube(
-                    settings=self.settings, video_id=video_id, url=source_url
+                meta = await asyncio.to_thread(
+                    normalize_from_youtube,
+                    settings=self.settings,
+                    video_id=video_id,
+                    url=source_url,
                 )
             finally:
                 self.settings.youtube_cookies_file = old
@@ -353,8 +357,11 @@ class PipelineOrchestrator:
             return meta
 
         if source_type == "direct_url":
-            return normalize_from_direct_url(
-                settings=self.settings, video_id=video_id, url=source_url
+            return await asyncio.to_thread(
+                normalize_from_direct_url,
+                settings=self.settings,
+                video_id=video_id,
+                url=source_url,
             )
 
         if source_type == "google_drive":
@@ -367,7 +374,8 @@ class PipelineOrchestrator:
                     )
             from app.pipeline.google_drive import download_google_drive
 
-            return download_google_drive(
+            return await asyncio.to_thread(
+                download_google_drive,
                 source_url,
                 work_dir,
                 self.settings,

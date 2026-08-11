@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import mimetypes
@@ -106,7 +107,8 @@ async def _create_from_upload(
         topic=topic,
         hotwords=hotwords,
     )
-    save_upload(
+    await asyncio.to_thread(
+        save_upload,
         settings=settings,
         video_id=video_id,
         filename=filename,
@@ -172,7 +174,7 @@ async def from_youtube(request: Request, body: YoutubeSubmitRequest):
     if cookie_path:
         settings.youtube_cookies_file = str(cookie_path)
     try:
-        probe = probe_youtube(body.url, settings)
+        probe = await asyncio.to_thread(probe_youtube, body.url, settings)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     finally:
