@@ -26,8 +26,9 @@ frontend/dist/
 *.swp
 .DS_Store
 
-# Models (large)
-models/
+# Models (large) — anchored to repo root so it doesn't also match
+# backend/app/models/ (the Pydantic schemas package)
+/models/
 *.gguf
 
 # Logs
