@@ -30,10 +30,12 @@ cp .env.example .env   # 填 CLOUD_LLM_*、QWEN_VL_*（可選）
 | 階段 | 內容 |
 |---|---|
 | Phase 1–2 | 五種來源、ASR/VL、校稿合併、timeline 編輯、帳號、retranscribe |
-| Phase 3 | 跨檔彙整（共同重點／衝突）、歷史紀錄、相關摘要建議 |
+| Phase 3 | 跨檔彙整（共同重點／衝突）、歷史紀錄 |
 | Phase 4 | WebSocket 進度、可選 ARQ/Redis、diarization 開關、embedding |
 | Phase 5 | 批次上傳、匯出 md/docx/pdf、Prompt 模板庫管理 |
-| 缺口補齊 | 校正 Diff、失敗續跑 `/resume`、llama-server 自動啟停 |
+| 摘要頁優化 | markdown 渲染、關鍵影格圖片自動嵌入摘要、歷史版本彈窗檢視 |
+| 佇列可靠性 | 阻塞 I/O（ffmpeg／下載／上傳寫檔）移出 event loop、雲端 LLM 5xx 重試＋退避、長逐字稿依 5000 字元分段校稿 |
+| 缺口補齊 | 失敗續跑 `/resume`（目前中斷 job 為整段重跑） |
 
 ## GPU（RTX 5070 Ti 16GB）
 
