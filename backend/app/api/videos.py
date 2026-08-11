@@ -22,6 +22,7 @@ from app.models.schemas import (
     RetranscribeRequest,
     SummarizeRequest,
     SummaryItem,
+    TagItem,
     TimelineDiffItem,
     TimelineDiffResponse,
     TimelineResponse,
@@ -29,13 +30,16 @@ from app.models.schemas import (
     TimelineSegmentPatch,
     VideoCreateResponse,
     VideoListItem,
+    VideoListResponse,
     VideoStatusResponse,
     YoutubeSubmitRequest,
 )
+from app.pipeline.embeddings import embed_text_remote
 from app.pipeline.export_docs import build_export_bytes, timeline_to_markdown
 from app.pipeline.merge import load_correction_meta
 from app.pipeline.source_normalize import save_upload, video_work_dir
 from app.pipeline.summarize import generate_summary
+from app.pipeline.tagging import finalize_summary_extras
 from app.pipeline.youtube import probe_youtube
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
@@ -192,6 +196,9 @@ async def from_youtube(request: Request, body: YoutubeSubmitRequest):
     )
     if body.account_id:
         store.update_video(video_id, used_account=body.account_id)
+    channel = probe.get("channel")
+    if channel:
+        store.add_video_tag(video_id, channel, kind="channel", source="channel")
     await worker.enqueue(video_id)
     return VideoCreateResponse(id=video_id, status="pending")
 
@@ -229,12 +236,47 @@ async def from_google_drive(request: Request, body: GoogleDriveSubmitRequest):
     return VideoCreateResponse(id=video_id, status="pending")
 
 
-@router.get("", response_model=list[VideoListItem])
-async def list_videos(request: Request, status: str | None = None):
-    _, store, _ = _deps(request)
-    rows = store.list_videos(status=status)
+@router.get("", response_model=VideoListResponse)
+async def list_videos(
+    request: Request,
+    status: str | None = None,
+    q: str | None = None,
+    search_mode: str = "keyword",
+    tags: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+):
+    settings, store, _ = _deps(request)
+    tag_ids = [t for t in (tags or "").split(",") if t] or None
+
+    video_ids: list[str] | None = None
+    keyword: str | None = None
+    if q and search_mode == "semantic":
+        vector = await embed_text_remote(q, settings)
+        hits = request.app.state.lance.search_summaries(vector, limit=500)
+        seen: set[str] = set()
+        video_ids = []
+        for h in hits:
+            vid = h["video_id"]
+            if vid not in seen:
+                seen.add(vid)
+                video_ids.append(vid)
+    elif q:
+        keyword = q
+
+    rows = store.list_videos(
+        status=status, keyword=keyword, tag_ids=tag_ids, video_ids=video_ids
+    )
+
+    total = len(rows)
+    page = max(page, 1)
+    page_size = max(1, min(page_size, 100))
+    start = (page - 1) * page_size
+    page_rows = rows[start : start + page_size]
+
+    tags_by_video = store.get_tags_for_videos([r["id"] for r in page_rows])
     items = []
-    for r in rows:
+    for r in page_rows:
         job = store.get_job(r["id"])
         items.append(
             VideoListItem(
@@ -248,9 +290,10 @@ async def list_videos(request: Request, status: str | None = None):
                 caption_source=r.get("caption_source") or "none",
                 progress=(job or {}).get("progress") or 0,
                 error_code=r.get("error_code"),
+                tags=[TagItem(**t) for t in tags_by_video.get(r["id"], [])],
             )
         )
-    return items
+    return VideoListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/{video_id}", response_model=VideoStatusResponse)
@@ -550,7 +593,15 @@ async def summarize(request: Request, video_id: str, body: SummarizeRequest):
     )
     rows = store.list_summaries(video_id)
     row = next(r for r in rows if r["id"] == summary_id)
-    request.app.state.lance.upsert_summary(row)
+    await finalize_summary_extras(
+        client=client,
+        settings=settings,
+        store=store,
+        lance=request.app.state.lance,
+        video_id=video_id,
+        title=video.get("filename") or "",
+        summary_row=row,
+    )
     return SummaryItem(
         id=row["id"],
         video_id=row["video_id"],

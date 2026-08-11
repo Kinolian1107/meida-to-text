@@ -17,7 +17,7 @@ export default function CrossPage() {
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const videos = await api.listVideos("ready");
+    const { items: videos } = await api.listVideos({ status: "ready", page_size: 100 });
     const items: ReadyItem[] = [];
     for (const v of videos) {
       const summaries = await api.summaries(v.id);

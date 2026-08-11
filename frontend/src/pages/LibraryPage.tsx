@@ -1,20 +1,57 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, VideoListItem } from "../api";
+import { api, TagKind, VideoListItem } from "../api";
+import Pagination from "../components/Pagination";
+import TagChips from "../components/TagChips";
+import TagFilter from "../components/TagFilter";
+
+const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
 
 export default function LibraryPage() {
   const [items, setItems] = useState<VideoListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [filter, setFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<"keyword" | "semantic">("keyword");
+  const [tagIds, setTagIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Guards against out-of-order responses: switching search mode/query fires
+  // overlapping requests (e.g. a fast empty-query fetch racing a slower
+  // semantic-search one), and whichever resolves last must win, not
+  // whichever was requested last.
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter, debouncedQuery, searchMode, tagIds]);
 
   async function refresh() {
-    setItems(await api.listVideos(filter || undefined));
+    const requestId = ++requestIdRef.current;
+    const res = await api.listVideos({
+      status: filter || undefined,
+      q: debouncedQuery || undefined,
+      search_mode: searchMode,
+      tagIds,
+      page,
+      page_size: PAGE_SIZE,
+    });
+    if (requestId !== requestIdRef.current) return;
+    setItems(res.items);
+    setTotal(res.total);
   }
 
   useEffect(() => {
     refresh().catch((e) => setError(String(e)));
-  }, [filter]);
+  }, [filter, debouncedQuery, searchMode, tagIds, page]);
 
   async function onDelete(v: VideoListItem) {
     const ok = confirm(
@@ -25,11 +62,29 @@ export default function LibraryPage() {
     setError(null);
     try {
       await api.deleteVideo(v.id);
-      setItems((prev) => prev.filter((x) => x.id !== v.id));
+      await refresh();
     } catch (e) {
       setError(String(e));
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function onAddTag(videoId: string, name: string, kind: TagKind) {
+    try {
+      await api.addVideoTag(videoId, name, kind);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function onRemoveTag(videoId: string, tagId: string) {
+    try {
+      await api.removeVideoTag(videoId, tagId);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -49,7 +104,27 @@ export default function LibraryPage() {
             <option value="failed">失敗</option>
           </select>
         </label>
+        <label>
+          搜尋
+          <input
+            type="text"
+            placeholder={searchMode === "semantic" ? "模糊搜尋摘要內容…" : "搜尋標題或摘要…"}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <label>
+          搜尋模式
+          <select
+            value={searchMode}
+            onChange={(e) => setSearchMode(e.target.value as "keyword" | "semantic")}
+          >
+            <option value="keyword">關鍵字</option>
+            <option value="semantic">語意模糊</option>
+          </select>
+        </label>
       </div>
+      <TagFilter selected={tagIds} onChange={setTagIds} />
       {error && <p className="error">{error}</p>}
       <ul className="list panel">
         {items.map((v) => (
@@ -62,11 +137,13 @@ export default function LibraryPage() {
                 {v.source_type} · {v.status} · {v.progress}%
                 {v.duration_sec != null ? ` · ${Math.round(v.duration_sec)}s` : ""}
               </div>
-              {v.error_code && (
-                <div className="error">
-                  {v.error_code}
-                </div>
-              )}
+              {v.error_code && <div className="error">{v.error_code}</div>}
+              <TagChips
+                tags={v.tags}
+                editable
+                onAdd={(name, kind) => onAddTag(v.id, name, kind)}
+                onRemove={(tagId) => onRemoveTag(v.id, tagId)}
+              />
             </div>
             <div className="list-actions">
               {v.status === "ready" ? (
@@ -92,6 +169,7 @@ export default function LibraryPage() {
         ))}
         {items.length === 0 && <li className="muted">尚無項目</li>}
       </ul>
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} />
     </div>
   );
 }

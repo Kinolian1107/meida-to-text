@@ -30,6 +30,17 @@ export type VideoStatus = {
   correction?: CorrectionInfo | null;
 };
 
+export type TagKind = "speaker" | "show" | "channel" | "topic";
+export type TagSource = "ai" | "manual" | "channel";
+
+export type TagItem = {
+  id: string;
+  name: string;
+  kind: TagKind;
+  source: TagSource;
+  count?: number | null;
+};
+
 export type VideoListItem = {
   id: string;
   filename: string;
@@ -41,6 +52,23 @@ export type VideoListItem = {
   caption_source: string;
   progress: number;
   error_code: string | null;
+  tags: TagItem[];
+};
+
+export type VideoListResponse = {
+  items: VideoListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+export type VideoListParams = {
+  status?: string;
+  q?: string;
+  search_mode?: "keyword" | "semantic";
+  tagIds?: string[];
+  page?: number;
+  page_size?: number;
 };
 
 export type TimelineSegment = {
@@ -115,8 +143,28 @@ export type RelatedItem = {
 
 export const api = {
   health: () => req<{ status: string; ytdlp_version: string | null }>("/health"),
-  listVideos: (status?: string) =>
-    req<VideoListItem[]>(`/api/videos${status ? `?status=${status}` : ""}`),
+  listVideos: (params: VideoListParams = {}) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", params.status);
+    if (params.q) qs.set("q", params.q);
+    if (params.search_mode) qs.set("search_mode", params.search_mode);
+    if (params.tagIds?.length) qs.set("tags", params.tagIds.join(","));
+    if (params.page) qs.set("page", String(params.page));
+    if (params.page_size) qs.set("page_size", String(params.page_size));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return req<VideoListResponse>(`/api/videos${suffix}`);
+  },
+  listTags: () => req<TagItem[]>("/api/tags"),
+  addVideoTag: (videoId: string, name: string, kind: TagKind) =>
+    req<TagItem>(`/api/videos/${videoId}/tags`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, kind }),
+    }),
+  removeVideoTag: (videoId: string, tagId: string) =>
+    req<{ ok: boolean }>(`/api/videos/${videoId}/tags/${tagId}`, { method: "DELETE" }),
+  regenerateVideoTags: (videoId: string) =>
+    req<TagItem[]>(`/api/videos/${videoId}/generate-tags`, { method: "POST" }),
   deleteVideo: (id: string) =>
     req<{ ok: boolean; id: string }>(`/api/videos/${id}`, { method: "DELETE" }),
   status: (id: string) => req<VideoStatus>(`/api/videos/${id}/status`),

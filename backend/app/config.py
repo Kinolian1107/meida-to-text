@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     cloud_llm_api_key: str = ""
     cloud_llm_model: str = ""
 
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_embedding_model: str = "bge-m3"
+    embed_dim: int = 1024
+
     max_download_bytes: int = 4_294_967_296
     youtube_cookies_file: str = ""
     ytdlp_sleep_seconds: int = 5

@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import accounts, cross_analysis, prompts, videos, ws, youtube_api
+from app.api import accounts, cross_analysis, prompts, tags, videos, ws, youtube_api
 from app.config import get_settings
 from app.db.lancedb_store import LanceDBStore
 from app.db.sqlite_store import SQLiteStore
@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     settings.ensure_dirs()
     store = SQLiteStore(settings.sqlite_path)
-    lance = LanceDBStore(settings.lancedb_uri)
+    lance = LanceDBStore(settings.lancedb_uri, embed_dim=settings.embed_dim)
     orchestrator = PipelineOrchestrator(settings, store, lance)
     worker = JobWorker(orchestrator)
 
@@ -69,6 +69,7 @@ app.include_router(prompts.router)
 app.include_router(youtube_api.router)
 app.include_router(accounts.router)
 app.include_router(cross_analysis.router)
+app.include_router(tags.router)
 app.include_router(ws.router)
 
 

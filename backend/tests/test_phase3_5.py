@@ -3,18 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.db.sqlite_store import SQLiteStore
-from app.pipeline.embeddings import cosine, embed_text
 from app.pipeline.export_docs import build_export_bytes, timeline_to_markdown
 from app.pipeline.merge import build_correction_diff
-
-
-def test_embed_text_normalized_and_stable():
-    a = embed_text("語音辨識與摘要系統")
-    b = embed_text("語音辨識與摘要系統")
-    c = embed_text("完全無關的烹飪食譜")
-    assert a == b
-    assert abs(sum(x * x for x in a) - 1.0) < 1e-6
-    assert cosine(a, b) > cosine(a, c)
 
 
 def test_correction_diff():

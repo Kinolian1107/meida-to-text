@@ -23,7 +23,7 @@ async def run_pipeline_job(ctx, video_id: str) -> None:
 async def startup(ctx) -> None:
     settings = get_settings()
     store = SQLiteStore(settings.sqlite_path)
-    lance = LanceDBStore(settings.lancedb_uri)
+    lance = LanceDBStore(settings.lancedb_uri, embed_dim=settings.embed_dim)
     ctx["orchestrator"] = PipelineOrchestrator(settings, store, lance)
 
 

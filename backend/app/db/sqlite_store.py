@@ -132,6 +132,26 @@ class SQLiteStore:
                     result_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS tags (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'topic',
+                    created_at TEXT NOT NULL,
+                    UNIQUE(name, kind)
+                );
+
+                CREATE TABLE IF NOT EXISTS video_tags (
+                    video_id TEXT NOT NULL,
+                    tag_id TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'ai',
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (video_id, tag_id),
+                    FOREIGN KEY(video_id) REFERENCES videos(id),
+                    FOREIGN KEY(tag_id) REFERENCES tags(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_video_tags_tag ON video_tags(tag_id);
                 """
             )
             # Best-effort migrations for older DBs
@@ -199,18 +219,57 @@ class SQLiteStore:
             ).fetchone()
         return dict(row) if row else None
 
-    def list_videos(self, status: str | None = None) -> list[dict[str, Any]]:
+    def list_videos(
+        self,
+        *,
+        status: str | None = None,
+        keyword: str | None = None,
+        tag_ids: list[str] | None = None,
+        video_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """List videos with optional filters.
+
+        `video_ids`, when given, both restricts and orders the result to
+        match that list's order (used for semantic-search ranking) — an
+        empty list short-circuits to no results rather than "no filter".
+        """
+        if video_ids is not None and not video_ids:
+            return []
+        where: list[str] = []
+        params: list[Any] = []
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        if keyword:
+            like = f"%{keyword}%"
+            where.append(
+                "(filename LIKE ? OR EXISTS ("
+                "SELECT 1 FROM summaries WHERE summaries.video_id = videos.id "
+                "AND summaries.content LIKE ?))"
+            )
+            params.extend([like, like])
+        if tag_ids:
+            for tag_id in tag_ids:
+                where.append("id IN (SELECT video_id FROM video_tags WHERE tag_id = ?)")
+                params.append(tag_id)
+        if video_ids is not None:
+            placeholders = ",".join("?" for _ in video_ids)
+            where.append(f"id IN ({placeholders})")
+            params.extend(video_ids)
+
+        sql = "SELECT * FROM videos"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY upload_time DESC"
+
         with self.connect() as conn:
-            if status:
-                rows = conn.execute(
-                    "SELECT * FROM videos WHERE status = ? ORDER BY upload_time DESC",
-                    (status,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM videos ORDER BY upload_time DESC"
-                ).fetchall()
-        return [dict(r) for r in rows]
+            rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+        if video_ids is not None:
+            order = {vid: i for i, vid in enumerate(video_ids)}
+            rows.sort(key=lambda r: order.get(r["id"], len(order)))
+
+        return rows
 
     def update_video(self, video_id: str, **fields: Any) -> None:
         if not fields:
@@ -629,6 +688,98 @@ class SQLiteStore:
             cur = conn.execute("DELETE FROM prompt_templates WHERE id = ?", (tid,))
             return cur.rowcount > 0
 
+    def upsert_tag(self, name: str, kind: str) -> str:
+        name = name.strip()
+        with self._lock, self.connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM tags WHERE name = ? AND kind = ?", (name, kind)
+            ).fetchone()
+            if row:
+                return row["id"]
+            tag_id = str(uuid.uuid4())
+            conn.execute(
+                "INSERT INTO tags (id, name, kind, created_at) VALUES (?, ?, ?, ?)",
+                (tag_id, name, kind, _utc_now()),
+            )
+            return tag_id
+
+    def add_video_tag(
+        self, video_id: str, name: str, kind: str, source: str = "manual"
+    ) -> dict[str, Any]:
+        tag_id = self.upsert_tag(name, kind)
+        with self._lock, self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO video_tags (video_id, tag_id, source, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(video_id, tag_id) DO UPDATE SET source = excluded.source
+                """,
+                (video_id, tag_id, source, _utc_now()),
+            )
+        return {"id": tag_id, "name": name.strip(), "kind": kind, "source": source}
+
+    def remove_video_tag(self, video_id: str, tag_id: str) -> None:
+        with self._lock, self.connect() as conn:
+            conn.execute(
+                "DELETE FROM video_tags WHERE video_id = ? AND tag_id = ?",
+                (video_id, tag_id),
+            )
+
+    def replace_ai_tags(self, video_id: str, tags: list[dict[str, str]]) -> None:
+        """Replace only source='ai' tags for a video; manual/channel tags are untouched."""
+        with self._lock, self.connect() as conn:
+            ai_tag_ids = [
+                r["tag_id"]
+                for r in conn.execute(
+                    "SELECT tag_id FROM video_tags WHERE video_id = ? AND source = 'ai'",
+                    (video_id,),
+                ).fetchall()
+            ]
+            for tag_id in ai_tag_ids:
+                conn.execute(
+                    "DELETE FROM video_tags WHERE video_id = ? AND tag_id = ?",
+                    (video_id, tag_id),
+                )
+        for t in tags:
+            self.add_video_tag(video_id, t["name"], t.get("kind", "topic"), source="ai")
+
+    def list_tags(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT tags.id, tags.name, tags.kind, COUNT(video_tags.video_id) AS count
+                FROM tags
+                JOIN video_tags ON video_tags.tag_id = tags.id
+                GROUP BY tags.id
+                ORDER BY count DESC, tags.name ASC
+                """
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_tags_for_videos(
+        self, video_ids: list[str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        result: dict[str, list[dict[str, Any]]] = {vid: [] for vid in video_ids}
+        if not video_ids:
+            return result
+        placeholders = ",".join("?" for _ in video_ids)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT video_tags.video_id AS video_id, tags.id AS id,
+                       tags.name AS name, tags.kind AS kind, video_tags.source AS source
+                FROM video_tags
+                JOIN tags ON tags.id = video_tags.tag_id
+                WHERE video_tags.video_id IN ({placeholders})
+                """,
+                video_ids,
+            ).fetchall()
+        for r in rows:
+            result[r["video_id"]].append(
+                {"id": r["id"], "name": r["name"], "kind": r["kind"], "source": r["source"]}
+            )
+        return result
+
     def delete_video(self, video_id: str) -> bool:
         """Hard-delete video and all related SQLite rows. Returns False if missing."""
         with self._lock, self.connect() as conn:
@@ -664,6 +815,7 @@ class SQLiteStore:
             conn.execute("DELETE FROM summaries WHERE video_id = ?", (video_id,))
             conn.execute("DELETE FROM jobs WHERE video_id = ?", (video_id,))
             conn.execute("DELETE FROM llm_usage WHERE video_id = ?", (video_id,))
+            conn.execute("DELETE FROM video_tags WHERE video_id = ?", (video_id,))
             conn.execute("DELETE FROM videos WHERE id = ?", (video_id,))
             return True
 

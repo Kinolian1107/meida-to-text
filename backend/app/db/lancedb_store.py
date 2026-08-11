@@ -7,16 +7,17 @@ from typing import Any
 import lancedb
 import pyarrow as pa
 
-from app.pipeline.embeddings import EMBED_DIM, cosine, embed_text
+from app.pipeline.embeddings import cosine
 
 logger = logging.getLogger(__name__)
 
 
 class LanceDBStore:
-    """Vector-ready mirror with hashing embeddings for related-item search."""
+    """Vector-ready mirror; summary vectors come from a real embedding model."""
 
-    def __init__(self, uri: Path) -> None:
+    def __init__(self, uri: Path, *, embed_dim: int = 1024) -> None:
         self.uri = uri
+        self.embed_dim = embed_dim
         self.uri.mkdir(parents=True, exist_ok=True)
         self.db = lancedb.connect(str(uri))
         self._ensure_tables()
@@ -46,7 +47,7 @@ class LanceDBStore:
                     ("prompt_template", pa.string()),
                     ("content", pa.string()),
                     ("created_at", pa.string()),
-                    ("vector", pa.list_(pa.float32(), EMBED_DIM)),
+                    ("vector", pa.list_(pa.float32(), self.embed_dim)),
                 ]
             )
             self.db.create_table("summaries", schema=schema)
@@ -100,17 +101,21 @@ class LanceDBStore:
             pass
         table.add([row])
 
-    def upsert_summary(self, summary: dict[str, Any]) -> None:
+    def upsert_summary(
+        self, summary: dict[str, Any], *, vector: list[float] | None = None
+    ) -> None:
+        """Store a summary row. `vector` must be precomputed by the caller —
+        this method stays synchronous and must never make a network call
+        (it runs on the event loop thread; see embed_text_remote())."""
         table = self.db.open_table("summaries")
         content = summary.get("content") or ""
-        # Older tables may lack vector column — recreate row best-effort
         row = {
             "id": summary["id"],
             "video_id": summary["video_id"],
             "prompt_template": summary.get("prompt_template") or "",
             "content": content,
             "created_at": summary.get("created_at") or "",
-            "vector": embed_text(content),
+            "vector": vector if vector is not None else [0.0] * self.embed_dim,
         }
         try:
             table.delete(f"id = '{summary['id']}'")
@@ -215,7 +220,7 @@ class LanceDBStore:
     def find_related_summaries(
         self, summary_id: str, *, limit: int = 5
     ) -> list[dict[str, Any]]:
-        """Return related summaries by cosine similarity on hashing embeddings."""
+        """Return related summaries by cosine similarity on stored vectors."""
         table = self.db.open_table("summaries")
         try:
             rows = table.to_pandas().to_dict(orient="records")
@@ -224,18 +229,45 @@ class LanceDBStore:
         target = next((r for r in rows if r.get("id") == summary_id), None)
         if not target:
             return []
-        content = target.get("content") or ""
         q = target.get("vector")
-        if q is None or (hasattr(q, "__len__") and len(q) == 0):
-            q = embed_text(content)
+        if q is None or not any(q):
+            return []
         scored: list[dict[str, Any]] = []
         for r in rows:
             if r.get("id") == summary_id:
                 continue
             vec = r.get("vector")
-            if vec is None or (hasattr(vec, "__len__") and len(vec) == 0):
-                vec = embed_text(r.get("content") or "")
+            if vec is None or not any(vec):
+                continue
             score = cosine(list(q), list(vec))
+            scored.append(
+                {
+                    "summary_id": r["id"],
+                    "video_id": r["video_id"],
+                    "score": score,
+                    "snippet": (r.get("content") or "")[:160],
+                }
+            )
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:limit]
+
+    def search_summaries(
+        self, query_vector: list[float], *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Rank all summaries by cosine similarity to an external query vector."""
+        table = self.db.open_table("summaries")
+        try:
+            rows = table.to_pandas().to_dict(orient="records")
+        except Exception:
+            return []
+        if not any(query_vector):
+            return []
+        scored: list[dict[str, Any]] = []
+        for r in rows:
+            vec = r.get("vector")
+            if vec is None or not any(vec):
+                continue
+            score = cosine(query_vector, list(vec))
             scored.append(
                 {
                     "summary_id": r["id"],

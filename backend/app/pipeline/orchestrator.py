@@ -28,6 +28,7 @@ from app.pipeline.source_normalize import (
     video_work_dir,
 )
 from app.pipeline.summarize import generate_summary
+from app.pipeline.tagging import finalize_summary_extras
 from app.security.account_store import materialize_youtube_cookies, refresh_google_token
 
 logger = logging.getLogger(__name__)
@@ -318,7 +319,15 @@ class PipelineOrchestrator:
         summaries = self.store.list_summaries(video_id)
         for s in summaries:
             if s["id"] == summary_id:
-                self.lance.upsert_summary(s)
+                await finalize_summary_extras(
+                    client=self.llm,
+                    settings=self.settings,
+                    store=self.store,
+                    lance=self.lance,
+                    video_id=video_id,
+                    title=video_row.get("filename") or "",
+                    summary_row=s,
+                )
 
         self._set_stage(video_id, "ready", 100)
         logger.info("Pipeline ready for %s", video_id)

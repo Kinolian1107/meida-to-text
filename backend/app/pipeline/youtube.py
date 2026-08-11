@@ -112,6 +112,8 @@ def probe_youtube(url: str, settings: Settings) -> dict[str, Any]:
         "available_manual": manual_langs,
         "available_auto": auto_langs,
         "id": info.get("id"),
+        "channel": info.get("channel") or info.get("uploader"),
+        "channel_id": info.get("channel_id"),
     }
 
 

@@ -277,6 +277,111 @@ button:disabled {
   line-height: 1.4;
 }
 
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-hover);
+  font-size: 0.78rem;
+  color: var(--ink);
+  cursor: default;
+}
+
+button.tag-chip {
+  cursor: pointer;
+}
+
+.tag-chip.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-hover));
+}
+
+.tag-chip-show {
+  border-color: var(--accent-2);
+}
+
+.tag-chip-speaker {
+  border-color: var(--accent-dim);
+}
+
+.tag-chip-remove {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 0;
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tag-chip-remove:hover {
+  color: var(--danger);
+}
+
+.tag-chip-add {
+  padding: 0.15rem 0.55rem;
+  font-size: 0.78rem;
+  border-radius: 999px;
+  color: var(--muted);
+  background: none;
+}
+
+.tag-chip-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.tag-chip-form input {
+  width: 8rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.tag-chip-form select,
+.tag-chip-form button {
+  padding: 0.2rem 0.4rem;
+}
+
+.tag-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.tag-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.tag-filter-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  min-width: 3rem;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
 .progress-bar {
   height: 8px;
   background: #0d1216;
