@@ -35,7 +35,8 @@ cp .env.example .env   # 填 CLOUD_LLM_*、QWEN_VL_*（可選）
 | Phase 5 | 批次上傳、匯出 md/docx/pdf、Prompt 模板庫管理 |
 | 摘要頁優化 | markdown 渲染、關鍵影格圖片自動嵌入摘要、歷史版本彈窗檢視 |
 | 佇列可靠性 | 阻塞 I/O（ffmpeg／下載／上傳寫檔）移出 event loop、雲端 LLM 5xx 重試＋退避、長逐字稿依 5000 字元分段校稿 |
-| 缺口補齊 | 失敗續跑 `/resume`（目前中斷 job 為整段重跑） |
+| 標籤與搜尋 | AI 自動標籤（講者／節目／主題）＋ YouTube 頻道自動標籤＋手動增刪、項目庫標籤篩選／分頁／關鍵字搜尋、摘要語意模糊搜尋（Ollama bge-m3 embedding） |
+| 缺口補齊 | 失敗續跑 `/resume`（目前中斷 job 為整段重跑）；既有影片無 AI 標籤 backfill |
 
 ## GPU（RTX 5070 Ti 16GB）
 
