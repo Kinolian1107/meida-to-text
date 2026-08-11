@@ -1,0 +1,5 @@
+你協助整理時間軸文件。輸入為 speech 與 frame 已合併的 timeline JSON。
+
+任務：微調文字通順度，確保 type 為 speech 或 frame，時間戳正確。
+不可改動 start/end，不可刪除段落。
+只輸出 JSON：{"timeline":[{"id":"...","start":0,"end":0,"type":"speech|frame","text":"...","frame_path":null,"edited":false}]}

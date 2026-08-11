@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts","./src/pages/AccountsPage.tsx","./src/pages/CrossPage.tsx","./src/pages/LibraryPage.tsx","./src/pages/ProgressPage.tsx","./src/pages/PromptsPage.tsx","./src/pages/SummaryPage.tsx","./src/pages/TimelinePage.tsx","./src/pages/UploadPage.tsx"],"version":"5.7.3"}

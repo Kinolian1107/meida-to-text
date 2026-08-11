@@ -1,0 +1,36 @@
+# Data & secrets
+data/
+.env
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Models (large)
+models/
+*.gguf
+
+# Logs
+*.log
+.coverage
+htmlcov/

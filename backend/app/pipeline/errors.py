@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+
+class PipelineError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(f"{code}: {message}")
+
+
+class VideoUnavailableError(PipelineError):
+    def __init__(self, message: str = "影片不存在或已下架") -> None:
+        super().__init__("VIDEO_UNAVAILABLE", message)
+
+
+class AuthRequiredError(PipelineError):
+    def __init__(self, message: str = "需要登入或會員才能存取") -> None:
+        super().__init__("AUTH_REQUIRED", message)
+
+
+class CookieExpiredError(PipelineError):
+    def __init__(self, message: str = "Cookie 已失效，請重新匯出") -> None:
+        super().__init__("COOKIE_EXPIRED", message)
+
+
+class GeoBlockedError(PipelineError):
+    def __init__(self, message: str = "地區限制，無法下載") -> None:
+        super().__init__("GEO_BLOCKED", message)
+
+
+class YtdlpExtractFailedError(PipelineError):
+    def __init__(
+        self, message: str = "yt-dlp 擷取失敗，可能需要更新 yt-dlp"
+    ) -> None:
+        super().__init__("YTDLP_EXTRACT_FAILED", message)
+
+
+class CaptionEmptyError(PipelineError):
+    def __init__(self, message: str = "字幕檔為空") -> None:
+        super().__init__("CAPTION_EMPTY", message)
+
+
+class DownloadTooLargeError(PipelineError):
+    def __init__(self, message: str = "檔案超過允許大小") -> None:
+        super().__init__("DOWNLOAD_TOO_LARGE", message)
+
+
+class InvalidMediaError(PipelineError):
+    def __init__(self, message: str = "不是合法的影音檔") -> None:
+        super().__init__("INVALID_MEDIA", message)
+
+
+class AsrFailedError(PipelineError):
+    def __init__(self, message: str = "WhisperX 轉錄失敗") -> None:
+        super().__init__("ASR_FAILED", message)
+
+
+class VlFailedError(PipelineError):
+    def __init__(self, message: str = "畫格描述失敗") -> None:
+        super().__init__("VL_FAILED", message)
+
+
+class CloudLlmFailedError(PipelineError):
+    def __init__(self, message: str = "雲端 LLM 呼叫失敗") -> None:
+        super().__init__("CLOUD_LLM_FAILED", message)
