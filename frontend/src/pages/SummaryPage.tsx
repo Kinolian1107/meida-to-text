@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, PromptTemplate, RelatedItem, SummaryItem } from "../api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { api, PromptTemplate, SummaryItem } from "../api";
 
 export default function SummaryPage() {
   const { id = "" } = useParams();
@@ -10,20 +12,14 @@ export default function SummaryPage() {
   const [saveName, setSaveName] = useState("");
   const [saveId, setSaveId] = useState("");
   const [items, setItems] = useState<SummaryItem[]>([]);
-  const [related, setRelated] = useState<RelatedItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [historyItem, setHistoryItem] = useState<SummaryItem | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
 
   async function refresh() {
     const list = await api.summaries(id);
     setItems(list);
-    if (list[0]) {
-      try {
-        setRelated(await api.related(list[0].id));
-      } catch {
-        setRelated([]);
-      }
-    }
   }
 
   async function loadPrompts() {
@@ -42,6 +38,15 @@ export default function SummaryPage() {
     loadPrompts().catch((e) => setError(String(e)));
     refresh().catch((e) => setError(String(e)));
   }, [id]);
+
+  useEffect(() => {
+    if (!historyItem) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHistoryItem(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [historyItem]);
 
   async function onGenerate() {
     setBusy(true);
@@ -86,82 +91,115 @@ export default function SummaryPage() {
       </p>
 
       <div className="panel">
-        <label>
-          Prompt 模板
-          <select
-            value={template}
-            onChange={(e) => {
-              const tid = e.target.value;
-              setTemplate(tid);
-              const p = prompts.find((x) => x.id === tid);
-              if (p) {
-                setCustom(p.content);
-                setSaveId(p.id);
-                setSaveName(p.name);
-              }
-            }}
-          >
-            {prompts.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-                {p.builtin === false ? "（自訂）" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Prompt（可編輯）
-          <textarea value={custom} onChange={(e) => setCustom(e.target.value)} />
-        </label>
-        <div className="row">
-          <label>
-            儲存為模板 id
-            <input value={saveId} onChange={(e) => setSaveId(e.target.value)} />
-          </label>
-          <label>
-            顯示名稱
-            <input value={saveName} onChange={(e) => setSaveName(e.target.value)} />
-          </label>
-        </div>
+        <button
+          type="button"
+          className="disclosure"
+          aria-expanded={promptOpen}
+          onClick={() => setPromptOpen((v) => !v)}
+        >
+          <span className={`disclosure-arrow${promptOpen ? " open" : ""}`}>▶</span>
+          Prompt 設定：{prompts.find((p) => p.id === template)?.name || template}
+        </button>
+
+        {promptOpen && (
+          <>
+            <label>
+              Prompt 模板
+              <select
+                value={template}
+                onChange={(e) => {
+                  const tid = e.target.value;
+                  setTemplate(tid);
+                  const p = prompts.find((x) => x.id === tid);
+                  if (p) {
+                    setCustom(p.content);
+                    setSaveId(p.id);
+                    setSaveName(p.name);
+                  }
+                }}
+              >
+                {prompts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                    {p.builtin === false ? "（自訂）" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Prompt（可編輯）
+              <textarea value={custom} onChange={(e) => setCustom(e.target.value)} />
+            </label>
+            <div className="row">
+              <label>
+                儲存為模板 id
+                <input value={saveId} onChange={(e) => setSaveId(e.target.value)} />
+              </label>
+              <label>
+                顯示名稱
+                <input value={saveName} onChange={(e) => setSaveName(e.target.value)} />
+              </label>
+            </div>
+          </>
+        )}
         <div className="row">
           <button type="button" onClick={onGenerate} disabled={busy}>
             {busy ? "產生中…" : "產生摘要"}
           </button>
-          <button type="button" className="secondary" onClick={onSaveTemplate} disabled={busy}>
-            儲存 Prompt 模板
-          </button>
+          {promptOpen && (
+            <button type="button" className="secondary" onClick={onSaveTemplate} disabled={busy}>
+              儲存 Prompt 模板
+            </button>
+          )}
         </div>
         {error && <p className="error">{error}</p>}
       </div>
 
-      {related.length > 0 && (
+      {items.length === 0 && <p className="muted">尚無摘要</p>}
+
+      {items[0] && (
         <div className="panel">
-          <h2>相關項目建議</h2>
-          <ul className="list">
-            {related.map((r) => (
-              <li key={r.summary_id}>
-                <div>
-                  <Link to={`/summary/${r.video_id}`}>{r.filename}</Link>
-                  <div className="muted">
-                    score={r.score.toFixed(3)} · {r.snippet}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="muted">
+            {items[0].prompt_template} · {items[0].created_at}
+          </div>
+          <div className="summary-body markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{items[0].content}</ReactMarkdown>
+          </div>
         </div>
       )}
 
-      <h2>歷史版本</h2>
-      {items.map((s) => (
-        <div className="panel" key={s.id}>
-          <div className="muted">
-            {s.prompt_template} · {s.created_at}
+      {items.length > 1 && (
+        <>
+          <h2>歷史版本</h2>
+          <ul className="list">
+            {items.slice(1, 3).map((s) => (
+              <li key={s.id}>
+                <button type="button" className="secondary" onClick={() => setHistoryItem(s)}>
+                  {s.prompt_template} · {s.created_at}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {historyItem && (
+        <div className="modal-overlay" onClick={() => setHistoryItem(null)}>
+          <div className="modal panel" onClick={(e) => e.stopPropagation()}>
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+              <div className="muted">
+                {historyItem.prompt_template} · {historyItem.created_at}
+              </div>
+              <button type="button" className="secondary" onClick={() => setHistoryItem(null)}>
+                關閉
+              </button>
+            </div>
+            <div className="summary-body markdown-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{historyItem.content}</ReactMarkdown>
+            </div>
           </div>
-          <div className="summary-body">{s.content}</div>
         </div>
-      ))}
-      {items.length === 0 && <p className="muted">尚無摘要</p>}
+      )}
     </div>
   );
 }

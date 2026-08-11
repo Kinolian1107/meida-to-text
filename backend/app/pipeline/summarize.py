@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from app.config import Settings
@@ -8,6 +9,35 @@ from app.pipeline.cloud_llm import CloudLLMClient, load_prompt_file
 from app.pipeline.errors import CloudLlmFailedError
 
 logger = logging.getLogger(__name__)
+
+FRAME_MARKER_RE = re.compile(r"\{\{\s*frame\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*\}\}")
+
+FRAME_MARKER_INSTRUCTION = (
+    "\n\n【畫面標註規則】若摘要中某個重點主要依據畫面（影格）內容而非語音逐字稿，"
+    "請在該重點文字結尾加上標註 `{{frame:TIMESTAMP}}`，"
+    "TIMESTAMP 須完全等於時間軸中對應「[TIMESTAMPs][畫面]」項目的秒數"
+    "（含小數點後一位，例如 12.3）。只有主要依據畫面內容的重點才需要標註，"
+    "其餘重點不要加，也不要編造不存在的秒數。"
+)
+
+
+def _frame_lookup(segments: list[dict]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for seg in segments:
+        if seg.get("type") == "frame" and seg.get("frame_path"):
+            lookup[f"{seg.get('start', 0):.1f}"] = seg["frame_path"]
+    return lookup
+
+
+def inject_frame_images(content: str, video_id: str, frame_lookup: dict[str, str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        frame_path = frame_lookup.get(match.group(1))
+        if not frame_path:
+            return ""
+        name = Path(frame_path).name
+        return f"\n\n![關鍵畫面 {match.group(1)}s](/api/videos/{video_id}/frames/{name})\n"
+
+    return FRAME_MARKER_RE.sub(replace, content)
 
 
 def list_summary_templates(settings: Settings) -> list[dict[str, str]]:
@@ -68,6 +98,10 @@ async def generate_summary(
         except FileNotFoundError:
             system = load_prompt_file(settings, "summary/bullet_points.txt")
 
+    frame_lookup = _frame_lookup(segments)
+    if frame_lookup:
+        system = system + FRAME_MARKER_INSTRUCTION
+
     body = timeline_to_text(segments)
     user = f"以下是影片時間軸內容，請依指示產出摘要：\n\n{body}"
 
@@ -95,6 +129,9 @@ async def generate_summary(
             content = result.text.strip()
         except CloudLlmFailedError:
             raise
+
+    if frame_lookup:
+        content = inject_frame_images(content, video_id, frame_lookup)
 
     if work_dir:
         (work_dir / "summary_latest.md").write_text(content, encoding="utf-8")

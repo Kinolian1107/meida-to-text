@@ -54,8 +54,10 @@ export default function LibraryPage() {
       <ul className="list panel">
         {items.map((v) => (
           <li key={v.id}>
-            <div>
-              <strong>{v.filename}</strong>
+            <div className="item-info">
+              <div className="item-title" title={v.filename}>
+                {v.filename}
+              </div>
               <div className="muted">
                 {v.source_type} · {v.status} · {v.progress}%
                 {v.duration_sec != null ? ` · ${Math.round(v.duration_sec)}s` : ""}
