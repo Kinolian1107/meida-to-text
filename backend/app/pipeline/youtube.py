@@ -13,6 +13,8 @@ from app.pipeline.errors import (
     CaptionEmptyError,
     CookieExpiredError,
     GeoBlockedError,
+    LivestreamProcessingError,
+    PotProviderUnavailableError,
     VideoUnavailableError,
     YtdlpExtractFailedError,
 )
@@ -94,6 +96,7 @@ def probe_youtube(url: str, settings: Settings) -> dict[str, Any]:
     lang, kind, caption_source = _pick_caption(info)
     manual_langs = sorted((info.get("subtitles") or {}).keys())
     auto_langs = sorted((info.get("automatic_captions") or {}).keys())
+    live_status = info.get("live_status")
 
     if caption_source == "manual":
         message = f"偵測到人工字幕（{lang}），將直接抓字幕並下載影片供畫格分析"
@@ -101,6 +104,9 @@ def probe_youtube(url: str, settings: Settings) -> dict[str, Any]:
         message = f"偵測到自動字幕（{lang}），將抓字幕並下載影片；品質可能不如本地 WhisperX"
     else:
         message = "無字幕，將下載影片後以 WhisperX 轉錄"
+
+    if live_status == "post_live":
+        message += "；⚠️ 直播剛結束，YouTube 尚在轉檔，現在處理可能因片段缺失而失敗，建議稍後再試"
 
     return {
         "title": info.get("title"),
@@ -114,6 +120,7 @@ def probe_youtube(url: str, settings: Settings) -> dict[str, Any]:
         "id": info.get("id"),
         "channel": info.get("channel") or info.get("uploader"),
         "channel_id": info.get("channel_id"),
+        "live_status": live_status,
     }
 
 
@@ -130,6 +137,8 @@ def _map_ytdlp_error(exc: Exception) -> Exception:
         return GeoBlockedError(msg)
     if "unavailable" in low or "does not exist" in low or "removed" in low:
         return VideoUnavailableError(msg)
+    if "403" in low or "forbidden" in low:
+        return PotProviderUnavailableError()
     return YtdlpExtractFailedError(msg)
 
 
@@ -232,6 +241,8 @@ def fetch_youtube(
     time.sleep(max(0, settings.ytdlp_sleep_seconds))
 
     probe = probe_youtube(url, settings)
+    if probe.get("live_status") == "post_live":
+        raise LivestreamProcessingError()
     caption_source = probe["caption_source"]
     caption_lang = probe["caption_lang"]
 

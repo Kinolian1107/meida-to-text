@@ -35,6 +35,28 @@ class YtdlpExtractFailedError(PipelineError):
         super().__init__("YTDLP_EXTRACT_FAILED", message)
 
 
+class LivestreamProcessingError(PipelineError):
+    def __init__(
+        self,
+        message: str = (
+            "此影片為剛結束的直播，YouTube 尚在轉檔為完整版本（目前僅提供近期片段），"
+            "下載會缺片段而失敗；請稍後（約數小時）再重新處理"
+        ),
+    ) -> None:
+        super().__init__("LIVESTREAM_PROCESSING", message)
+
+
+class PotProviderUnavailableError(PipelineError):
+    def __init__(
+        self,
+        message: str = (
+            "YouTube 擋下下載（403），通常是 PO Token provider 沒在跑；"
+            "請確認 bgutil-provider 容器狀態：docker start bgutil-provider"
+        ),
+    ) -> None:
+        super().__init__("POT_PROVIDER_UNAVAILABLE", message)
+
+
 class CaptionEmptyError(PipelineError):
     def __init__(self, message: str = "字幕檔為空") -> None:
         super().__init__("CAPTION_EMPTY", message)
