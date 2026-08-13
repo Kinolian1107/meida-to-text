@@ -17,13 +17,31 @@ cp .env.example .env   # 填 CLOUD_LLM_*、QWEN_VL_*（可選）
 
 在 **Windows HOST** 瀏覽器開啟：
 
-- UI: `http://127.0.0.1:5173`（若 WSL 端口轉發正常）
-- 或先查 WSL IP：`hostname -I | awk '{print $1}'`，再開 `http://<WSL_IP>:5173`
-- API health: `http://127.0.0.1:8000/health`
+- UI: `http://localhost:5173`（WSL2 預設開 localhost forwarding，實測可直接連）
+- API health: `http://localhost:8000/health`
+- 若 `localhost` 連不到，先查 WSL IP：`hostname -I | awk '{print $1}'`，改開 `http://<WSL_IP>:5173`
 
-> 若 HOST 連不到，在 Windows PowerShell（系統管理員）執行：  
+> 若 `localhost`／WSL IP 都連不到，在 Windows PowerShell（系統管理員）執行：  
 > `netsh interface portproxy add v4tov4 listenport=5173 listenaddress=0.0.0.0 connectport=5173 connectaddress=<WSL_IP>`  
 > 並對 8000 做同樣設定。
+
+## 開機自動啟動（systemd）
+
+WSL 的 `/etc/wsl.conf` 已開 `[boot] systemd=true`，可以把 backend／frontend 註冊成系統層級 systemd service，WSL 一啟動就自動帶起（不需要手動跑 `start_backend.sh`／`start_frontend.sh`，也不需要先登入該使用者）：
+
+```bash
+sudo ./scripts/systemd/install.sh
+```
+
+會把 `scripts/systemd/media2text-backend.service`、`media2text-frontend.service` 複製到 `/etc/systemd/system/`，`daemon-reload` 後 `enable --now`。之後管理：
+
+```bash
+systemctl status media2text-backend.service media2text-frontend.service
+journalctl -u media2text-backend.service -f   # 看 log
+sudo systemctl restart media2text-backend.service
+```
+
+> 兩個 service 都用 `User=kino` 執行（非 root），backend 會在啟動時 `source .env`；改了 `.env` 記得 `sudo systemctl restart` 才會生效。frontend 用 Vite dev server（跟手動啟動方式一致，非 production build）。
 
 ## 功能一覽
 
@@ -36,6 +54,7 @@ cp .env.example .env   # 填 CLOUD_LLM_*、QWEN_VL_*（可選）
 | 摘要頁優化 | markdown 渲染、關鍵影格圖片自動嵌入摘要、歷史版本彈窗檢視 |
 | 佇列可靠性 | 阻塞 I/O（ffmpeg／下載／上傳寫檔）移出 event loop、雲端 LLM 5xx 重試＋退避、長逐字稿依 5000 字元分段校稿 |
 | 標籤與搜尋 | AI 自動標籤（講者／節目／主題）＋ YouTube 頻道自動標籤＋手動增刪、項目庫標籤篩選／分頁／關鍵字搜尋、摘要語意模糊搜尋（Ollama bge-m3 embedding） |
+| 部署 | 系統層級 systemd service（`scripts/systemd/`），WSL 開機自動帶起 backend／frontend，Windows HOST 透過 localhost forwarding 直連 |
 | 缺口補齊 | 失敗續跑 `/resume`（目前中斷 job 為整段重跑）；既有影片無 AI 標籤 backfill |
 
 ## GPU（RTX 5070 Ti 16GB）

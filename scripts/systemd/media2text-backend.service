@@ -1,0 +1,18 @@
+[Unit]
+Description=media2text backend (FastAPI/uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kino
+Group=kino
+WorkingDirectory=/home/kino/git/media2text
+ExecStart=/bin/bash -c 'set -a; source /home/kino/git/media2text/.env; set +a; export PYTHONPATH=/home/kino/git/media2text/backend; exec /home/kino/git/media2text/.venv/bin/uvicorn app.main:app --host "${API_HOST:-0.0.0.0}" --port "${API_PORT:-8000}"'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

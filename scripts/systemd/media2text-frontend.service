@@ -1,0 +1,18 @@
+[Unit]
+Description=media2text frontend (Vite dev server)
+After=network-online.target media2text-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kino
+Group=kino
+WorkingDirectory=/home/kino/git/media2text/frontend
+ExecStart=/bin/bash -c 'export NVM_DIR=/home/kino/.nvm; source "$NVM_DIR/nvm.sh"; exec npm run dev -- --host 0.0.0.0 --port 5173'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
