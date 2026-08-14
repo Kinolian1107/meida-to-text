@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 LANG_PRIORITY = ["zh-Hant", "zh-TW", "zh-Hans", "zh", "en"]
 
+MEDIA_DOWNLOAD_ATTEMPTS = 4
+MEDIA_DOWNLOAD_RETRY_BASE_SECONDS = 3
+
 
 def ytdlp_version() -> str | None:
     try:
@@ -231,6 +234,46 @@ def parse_srt_to_segments(srt_text: str) -> list[dict[str, Any]]:
     return segments
 
 
+def _is_retryable_download_error(exc: Exception) -> bool:
+    """YouTube intermittently 403s a freshly-issued media URL; a new session fixes it."""
+    low = str(exc).lower()
+    return "403" in low or "forbidden" in low
+
+
+def _download_media_with_retry(url: str, base_opts: dict[str, Any]) -> None:
+    """Download media, retrying transient 403s with a fresh yt-dlp session.
+
+    Each attempt builds a new YoutubeDL so the player response and PO token are
+    re-fetched; reusing the old session would just replay the rejected URL.
+    """
+    import yt_dlp
+
+    last_exc: Exception | None = None
+    for attempt in range(MEDIA_DOWNLOAD_ATTEMPTS):
+        try:
+            with yt_dlp.YoutubeDL(base_opts) as ydl:
+                ydl.download([url])
+        except Exception as exc:
+            last_exc = exc
+            is_last = attempt == MEDIA_DOWNLOAD_ATTEMPTS - 1
+            if is_last or not _is_retryable_download_error(exc):
+                raise _map_ytdlp_error(exc) from exc
+            delay = MEDIA_DOWNLOAD_RETRY_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "Media download attempt %d/%d failed (%s); retrying in %ds",
+                attempt + 1,
+                MEDIA_DOWNLOAD_ATTEMPTS,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+        else:
+            return
+
+    # Unreachable: the final attempt either returns or raises above.
+    raise _map_ytdlp_error(last_exc or YtdlpExtractFailedError())
+
+
 def fetch_youtube(
     url: str, out_dir: Path, settings: Settings
 ) -> dict[str, Any]:
@@ -305,11 +348,7 @@ def fetch_youtube(
                     caption_path = dest
 
     # Always download video for frame analysis (spec)
-    try:
-        with yt_dlp.YoutubeDL(base_opts) as ydl:
-            ydl.download([url])
-    except Exception as exc:
-        raise _map_ytdlp_error(exc) from exc
+    _download_media_with_retry(url, base_opts)
 
     media_files = [
         p

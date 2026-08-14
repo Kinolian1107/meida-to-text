@@ -12,11 +12,21 @@ fi
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 UNIT_DIR="$ROOT/scripts/systemd"
 
+cp "$UNIT_DIR/media2text-potprovider.service" /etc/systemd/system/media2text-potprovider.service
 cp "$UNIT_DIR/media2text-backend.service" /etc/systemd/system/media2text-backend.service
 cp "$UNIT_DIR/media2text-frontend.service" /etc/systemd/system/media2text-frontend.service
 
+# The PO Token provider container may predate this unit and carry its own
+# restart policy; drop it so systemd is the only thing managing the container.
+if docker inspect bgutil-provider >/dev/null 2>&1; then
+  docker update --restart=no bgutil-provider >/dev/null 2>&1 || true
+fi
+
 systemctl daemon-reload
-systemctl enable --now media2text-backend.service media2text-frontend.service
+systemctl enable --now \
+  media2text-potprovider.service \
+  media2text-backend.service \
+  media2text-frontend.service
 
 echo "Installed. Check status with:"
-echo "  systemctl status media2text-backend.service media2text-frontend.service"
+echo "  systemctl status media2text-potprovider.service media2text-backend.service media2text-frontend.service"

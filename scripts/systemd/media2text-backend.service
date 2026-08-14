@@ -2,6 +2,11 @@
 Description=media2text backend (FastAPI/uvicorn)
 After=network-online.target
 Wants=network-online.target
+# YouTube downloads 403 without the PO Token provider, so bring it up first.
+# Wants= (not Requires=) keeps the API serving even if the provider is broken —
+# only YouTube fetches degrade, and they now report POT_PROVIDER_UNAVAILABLE.
+Wants=media2text-potprovider.service
+After=media2text-potprovider.service
 
 [Service]
 Type=simple

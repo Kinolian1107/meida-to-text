@@ -27,21 +27,32 @@ cp .env.example .env   # 填 CLOUD_LLM_*、QWEN_VL_*（可選）
 
 ## 開機自動啟動（systemd）
 
-WSL 的 `/etc/wsl.conf` 已開 `[boot] systemd=true`，可以把 backend／frontend 註冊成系統層級 systemd service，WSL 一啟動就自動帶起（不需要手動跑 `start_backend.sh`／`start_frontend.sh`，也不需要先登入該使用者）：
+WSL 的 `/etc/wsl.conf` 已開 `[boot] systemd=true`，可以把 backend／frontend／PO Token provider 註冊成系統層級 systemd service，WSL 一啟動就把該跑的東西全部帶起（不需要手動跑 `start_backend.sh`／`start_frontend.sh`，也不需要先登入該使用者）：
 
 ```bash
 sudo ./scripts/systemd/install.sh
 ```
 
-會把 `scripts/systemd/media2text-backend.service`、`media2text-frontend.service` 複製到 `/etc/systemd/system/`，`daemon-reload` 後 `enable --now`。之後管理：
+會把 `scripts/systemd/` 下三個單元檔複製到 `/etc/systemd/system/`，`daemon-reload` 後 `enable --now`：
+
+| Service | 用途 |
+|---|---|
+| `media2text-potprovider` | YouTube PO Token provider（Docker 容器），backend 排在它後面啟動 |
+| `media2text-backend` | FastAPI／uvicorn |
+| `media2text-frontend` | Vite dev server |
+
+之後管理：
 
 ```bash
-systemctl status media2text-backend.service media2text-frontend.service
+systemctl status media2text-potprovider.service media2text-backend.service media2text-frontend.service
 journalctl -u media2text-backend.service -f   # 看 log
 sudo systemctl restart media2text-backend.service
+curl http://127.0.0.1:4416/ping               # PO Token provider 健康檢查
 ```
 
-> 兩個 service 都用 `User=kino` 執行（非 root），backend 會在啟動時 `source .env`；改了 `.env` 記得 `sudo systemctl restart` 才會生效。frontend 用 Vite dev server（跟手動啟動方式一致，非 production build）。
+> 三個 service 都用 `User=kino` 執行（非 root），backend 會在啟動時 `source .env`；改了 `.env` 記得 `sudo systemctl restart` 才會生效。frontend 用 Vite dev server（跟手動啟動方式一致，非 production build）。
+>
+> **PO Token provider 是 YouTube 下載的必要條件**——沒跑的話 yt-dlp 一律吃 `HTTP Error 403`，UI 會顯示 `POT_PROVIDER_UNAVAILABLE`。容器由 systemd 獨佔管理（前景 `docker run --rm`，非 Docker restart policy），backend 用 `Wants=` 而非 `Requires=` 依賴它，所以 provider 掛掉時 API 仍照常服務，只有 YouTube 下載降級。
 
 ## 功能一覽
 
@@ -54,7 +65,8 @@ sudo systemctl restart media2text-backend.service
 | 摘要頁優化 | markdown 渲染、關鍵影格圖片自動嵌入摘要、歷史版本彈窗檢視 |
 | 佇列可靠性 | 阻塞 I/O（ffmpeg／下載／上傳寫檔）移出 event loop、雲端 LLM 5xx 重試＋退避、長逐字稿依 5000 字元分段校稿 |
 | 標籤與搜尋 | AI 自動標籤（講者／節目／主題）＋ YouTube 頻道自動標籤＋手動增刪、項目庫標籤篩選／分頁／關鍵字搜尋、摘要語意模糊搜尋（Ollama bge-m3 embedding） |
-| 部署 | 系統層級 systemd service（`scripts/systemd/`），WSL 開機自動帶起 backend／frontend，Windows HOST 透過 localhost forwarding 直連 |
+| 部署 | 系統層級 systemd service（`scripts/systemd/`），WSL 開機自動帶起 PO Token provider／backend／frontend，Windows HOST 透過 localhost forwarding 直連 |
+| YouTube 下載韌性 | PO Token provider＋`curl_cffi` impersonation 繞過 403，間歇性 403 自動重試 4 次（換新 session）；直播轉檔中（post_live）提前失敗不空跑 |
 | 缺口補齊 | 失敗續跑 `/resume`（目前中斷 job 為整段重跑）；既有影片無 AI 標籤 backfill |
 
 ## GPU（RTX 5070 Ti 16GB）

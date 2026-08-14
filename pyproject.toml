@@ -13,6 +13,9 @@ dependencies = [
   "httpx>=0.27.0",
   "yt-dlp>=2025.1.0",
   "bgutil-ytdlp-pot-provider>=1.3.0",
+  # Browser TLS impersonation for yt-dlp; upper bound is yt-dlp's supported range
+  # (it hard-rejects >=0.16, leaving zero impersonate targets and frequent 403s).
+  "curl_cffi>=0.10,<0.16",
   "gdown>=5.2.0",
   "lancedb>=0.17.0",
   "pyarrow>=18.0.0",
