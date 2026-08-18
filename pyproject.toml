@@ -11,7 +11,10 @@ dependencies = [
   "pydantic>=2.9.0",
   "pydantic-settings>=2.6.0",
   "httpx>=0.27.0",
-  "yt-dlp>=2025.1.0",
+  # [default] pulls yt-dlp-ejs (the n challenge solver script), [deno] pulls the JS
+  # runtime binary. Without both, YouTube extraction falls back to the android_vr
+  # client, whose media URLs now 403 unconditionally.
+  "yt-dlp[default,deno]>=2026.7.4",
   "bgutil-ytdlp-pot-provider>=1.3.0",
   # Browser TLS impersonation for yt-dlp; upper bound is yt-dlp's supported range
   # (it hard-rejects >=0.16, leaving zero impersonate targets and frequent 403s).

@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     max_download_bytes: int = 4_294_967_296
     youtube_cookies_file: str = ""
     ytdlp_sleep_seconds: int = 5
+    # Comma-separated yt-dlp player clients; empty hands the choice back to yt-dlp.
+    # Pinned because yt-dlp's own default (android_vr) now 403s on every media URL,
+    # and web_safari is SABR-only. Overridable so a future YouTube change is a
+    # config edit rather than a code change.
+    ytdlp_player_clients: str = "tv_simply,web_embedded"
+    # Absolute path to the JS runtime yt-dlp uses to solve n challenges; empty
+    # auto-resolves the deno binary sitting next to this interpreter.
+    ytdlp_js_runtime_path: str = ""
 
     scene_detector: str = "adaptive"  # adaptive | content
     content_threshold: float = 27.0

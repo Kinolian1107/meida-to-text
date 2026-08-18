@@ -28,10 +28,12 @@
     1. **PO Token provider**：`bgutil-ytdlp-pot-provider`（pip，已在 `pyproject.toml`）＋ Docker 容器，yt-dlp 自動偵測 `127.0.0.1:4416`，不需改任何專案程式碼。健康檢查 `curl http://127.0.0.1:4416/ping`，回傳的 version 要跟 pip 端 plugin 版本一致。
     2. **`curl_cffi`（browser TLS impersonation）**：yt-dlp 的 YouTube extractor 會要求 impersonation，沒裝時 log 會一直出現 `no impersonate target is available` 且 403 機率大增。**版本必須 `>=0.10,<0.16`**——yt-dlp 2026.07.04 硬性拒絕 0.16+（`Only curl_cffi versions 0.5.10 and 0.10.x through 0.15.x are supported`），裝成 0.16 的話 `yt-dlp --list-impersonate-targets` 會全部顯示 unavailable，等同沒裝。
     3. **重試**：即使 1+2 都到位，403 仍是**間歇性**的（實測 3 次有 1 次失敗）。`_download_media_with_retry()` 對 403 最多重試 4 次、指數退避 3/6/12s，每次都建新的 `YoutubeDL` session（重用舊 session 只會重播已被拒絕的 URL）；非 403 的錯誤不重試，直接往上拋原本的 error code。
-    附註：機器上沒裝 deno／yt-dlp 找不到 JS runtime，log 會一直有 warning，但上述三層到位後不影響下載，可忽略。
+    4. **JS runtime + challenge solver + player client**（2026-08-19 補上，先前誤判為「可忽略」）：以上三層全部健康時仍會 403，根因是 yt-dlp 解不開 `n` challenge。`pyproject.toml` 原本只寫裸的 `yt-dlp`，沒帶 `[default]` extra，所以 `yt-dlp-ejs`（challenge solver script）沒裝，機器上也沒有 JS runtime；兩者一缺，所有需要簽章解密的 client（`web`／`tv_simply`／`web_embedded`／`mweb`）就只剩 images，yt-dlp 只好退回唯一不需 JS 的 `android_vr`，而 **`android_vr` 的 googlevideo URL 現在一律 403**（實測連 progressive format 18 也 403，`fetch_pot=always` 無效）；`web_safari` 雖能拿到 GVS PO Token 但被 YouTube 強制 SABR，https 格式全被 skip。解法：依賴改成 `yt-dlp[default,deno]`（帶入 `yt-dlp-ejs` 與 `.venv/bin/deno`），並用 `YTDLP_PLAYER_CLIENTS` 把 client 釘在 `tv_simply,web_embedded`（實測兩者都可下載；`tv` 回 `The page needs to be reloaded.`、`tv_embedded` 已不被支援）。`youtube.py:_ytdlp_base_opts()` 是 probe 與下載共用的 opts（兩邊必須同一組 client，否則 probe 拿到的 `live_status`／格式會跟實際下載脫節）；`_js_runtime_path()` 用**絕對路徑**指向 `.venv/bin/deno`，因為 systemd 直接 exec `.venv/bin/uvicorn`，`.venv/bin` 不在 `PATH` 上、`which` 找不到。成功時 log 會出現 `[jsc:deno] Solving JS challenges using deno`。
+    附註：`POT_PROVIDER_UNAVAILABLE` 這個 error code 名字是歷史遺留，實際上 403 的成因不只 PO Token provider（訊息已改寫成三個可能性），code 本身為相容前端與測試保留不動。
 
 ## 建置順序提醒
 
 改依賴後：`pip install -e ".[dev]"`；前端：`cd frontend && npm install`
 語意搜尋需要本機 Ollama 跑著且已 `ollama pull bge-m3`（沿用 LazyBun 的 server，非本專案私有）
 YouTube 下載需要 `media2text-potprovider.service` 跑著（見上方「YouTube 下載阻擋」），否則一律 403；改過 systemd 單元檔後要重跑 `sudo ./scripts/systemd/install.sh`
+YouTube 下載另需 `.venv/bin/deno` 與 `yt-dlp-ejs`（由 `yt-dlp[default,deno]` 帶入，跑過 `pip install -e ".[dev]"` 即有），缺了會退回 `android_vr` 並全數 403

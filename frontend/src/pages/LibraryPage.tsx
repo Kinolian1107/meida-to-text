@@ -70,6 +70,19 @@ export default function LibraryPage() {
     }
   }
 
+  async function onRetry(v: VideoListItem) {
+    setBusyId(v.id);
+    setError(null);
+    try {
+      await api.resume(v.id);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function onAddTag(videoId: string, name: string, kind: TagKind) {
     try {
       await api.addVideoTag(videoId, name, kind);
@@ -154,6 +167,19 @@ export default function LibraryPage() {
                 </>
               ) : (
                 <Link to={`/progress/${v.id}`}>進度</Link>
+              )}
+              {v.status === "failed" && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="plain-link"
+                    disabled={busyId === v.id}
+                    onClick={() => onRetry(v)}
+                  >
+                    {busyId === v.id ? "重試中…" : "重試"}
+                  </button>
+                </>
               )}
               {" · "}
               <button

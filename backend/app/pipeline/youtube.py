@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,42 @@ def _cookie_opts(settings: Settings) -> dict[str, Any]:
     return opts
 
 
+def _js_runtime_path(settings: Settings) -> str | None:
+    """Locate the deno binary yt-dlp needs to solve YouTube's n challenges.
+
+    The systemd unit execs .venv/bin/uvicorn directly, so .venv/bin never lands on
+    PATH and a bare `which` misses the pip-installed deno. Resolving it next to the
+    running interpreter covers that; None lets yt-dlp fall back to its own lookup.
+    """
+    if settings.ytdlp_js_runtime_path:
+        return settings.ytdlp_js_runtime_path
+    bundled = Path(sys.executable).with_name("deno")
+    if bundled.exists():
+        return str(bundled)
+    return shutil.which("deno")
+
+
+def _player_clients(settings: Settings) -> list[str]:
+    return [c.strip() for c in settings.ytdlp_player_clients.split(",") if c.strip()]
+
+
+def _ytdlp_base_opts(settings: Settings) -> dict[str, Any]:
+    """Options shared by probing and downloading.
+
+    Both paths must agree on the player client: probing with a different client
+    would report a live_status and format availability the download never sees.
+    """
+    opts: dict[str, Any] = {
+        "noplaylist": True,
+        "js_runtimes": {"deno": {"path": _js_runtime_path(settings)}},
+        **_cookie_opts(settings),
+    }
+    clients = _player_clients(settings)
+    if clients:
+        opts["extractor_args"] = {"youtube": {"player_client": clients}}
+    return opts
+
+
 def _pick_caption(
     info: dict[str, Any], lang_priority: list[str] | None = None
 ) -> tuple[str | None, str | None, str]:
@@ -82,10 +120,9 @@ def probe_youtube(url: str, settings: Settings) -> dict[str, Any]:
     import yt_dlp
 
     opts: dict[str, Any] = {
+        **_ytdlp_base_opts(settings),
         "quiet": True,
         "skip_download": True,
-        "noplaylist": True,
-        **_cookie_opts(settings),
     }
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -291,12 +328,11 @@ def fetch_youtube(
 
     media_tmpl = str(out_dir / "media.%(ext)s")
     base_opts: dict[str, Any] = {
+        **_ytdlp_base_opts(settings),
         "quiet": False,
-        "noplaylist": True,
         "outtmpl": media_tmpl,
         "format": "bv*[height<=720]+ba/b[height<=720]/b",
         "merge_output_format": "mp4",
-        **_cookie_opts(settings),
     }
 
     transcript: dict[str, Any] | None = None
@@ -391,3 +427,4 @@ def fetch_youtube(
 
 # Exported for unit tests
 pick_caption = _pick_caption
+ytdlp_base_opts = _ytdlp_base_opts

@@ -202,6 +202,21 @@ button.danger:hover:not(:disabled) {
   border-color: var(--danger);
 }
 
+button.plain-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+button.plain-link:hover:not(:disabled) {
+  background: none;
+  color: color-mix(in srgb, var(--accent) 80%, #fff);
+}
+
 button.danger-link,
 .danger-link {
   border: none;

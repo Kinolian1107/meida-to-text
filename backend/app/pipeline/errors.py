@@ -50,8 +50,11 @@ class PotProviderUnavailableError(PipelineError):
     def __init__(
         self,
         message: str = (
-            "YouTube 擋下下載（403），通常是 PO Token provider 沒在跑；"
-            "請確認 bgutil-provider 容器狀態：docker start bgutil-provider"
+            "YouTube 擋下下載（403）。依可能性由高到低："
+            "(1) yt-dlp 缺 JS runtime 或 challenge solver，導致只剩會被 403 的 "
+            "android_vr 格式可選 —— 確認 .venv 內有 deno 與 yt-dlp-ejs；"
+            "(2) YTDLP_PLAYER_CLIENTS 指定的 client 已被 YouTube 淘汰，需要換一組；"
+            "(3) PO Token provider 沒在跑 —— curl http://127.0.0.1:4416/ping 確認"
         ),
     ) -> None:
         super().__init__("POT_PROVIDER_UNAVAILABLE", message)
