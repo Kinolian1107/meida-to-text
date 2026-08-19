@@ -65,6 +65,7 @@ class SQLiteStore:
                     end REAL NOT NULL,
                     type TEXT NOT NULL,
                     text TEXT NOT NULL,
+                    text_zh TEXT,
                     frame_path TEXT,
                     edited INTEGER DEFAULT 0,
                     FOREIGN KEY(video_id) REFERENCES videos(id)
@@ -162,6 +163,10 @@ class SQLiteStore:
             if "speaker" not in cols:
                 conn.execute(
                     "ALTER TABLE timeline_segments ADD COLUMN speaker TEXT"
+                )
+            if "text_zh" not in cols:
+                conn.execute(
+                    "ALTER TABLE timeline_segments ADD COLUMN text_zh TEXT"
                 )
 
     def create_video(
@@ -349,8 +354,9 @@ class SQLiteStore:
                 conn.execute(
                     """
                     INSERT INTO timeline_segments (
-                        id, video_id, start, end, type, text, frame_path, edited, speaker
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        id, video_id, start, end, type, text, text_zh,
+                        frame_path, edited, speaker
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         seg.get("id") or str(uuid.uuid4()),
@@ -359,6 +365,7 @@ class SQLiteStore:
                         seg["end"],
                         seg["type"],
                         seg["text"],
+                        seg.get("text_zh"),
                         seg.get("frame_path"),
                         1 if seg.get("edited") else 0,
                         seg.get("speaker"),
@@ -475,6 +482,42 @@ class SQLiteStore:
                 (text, video_id, segment_id),
             )
         return self.get_timeline_segment(video_id, segment_id)
+
+    def set_segment_translations(
+        self, video_id: str, translations: dict[str, str]
+    ) -> None:
+        """Write Traditional Chinese subtitle text onto existing segments."""
+        if not translations:
+            return
+        with self._lock, self.connect() as conn:
+            conn.executemany(
+                """
+                UPDATE timeline_segments SET text_zh = ?
+                WHERE video_id = ? AND id = ?
+                """,
+                [(text, video_id, seg_id) for seg_id, text in translations.items()],
+            )
+
+    def count_translatable_segments(self, video_id: str) -> tuple[int, int]:
+        """(translated, total) speech segments — the source of truth for progress.
+
+        Counted from the segments themselves rather than a stored counter so a
+        timeline rebuild (which drops text_zh) reports honestly instead of
+        claiming a translation that no longer exists.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN text_zh IS NOT NULL AND TRIM(text_zh) != ''
+                        THEN 1 ELSE 0 END) AS translated
+                FROM timeline_segments
+                WHERE video_id = ? AND type = 'speech' AND TRIM(text) != ''
+                """,
+                (video_id,),
+            ).fetchone()
+        return int(row["translated"] or 0), int(row["total"] or 0)
 
     def create_account(
         self,

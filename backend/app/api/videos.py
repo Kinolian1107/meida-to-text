@@ -28,6 +28,7 @@ from app.models.schemas import (
     TimelineResponse,
     TimelineSegment,
     TimelineSegmentPatch,
+    TranslationState,
     VideoCreateResponse,
     VideoListItem,
     VideoListResponse,
@@ -40,6 +41,13 @@ from app.pipeline.merge import load_correction_meta
 from app.pipeline.source_normalize import save_upload, video_work_dir
 from app.pipeline.summarize import generate_summary
 from app.pipeline.tagging import finalize_summary_extras
+from app.pipeline.translate import (
+    SUBTITLE_LANGS,
+    build_vtt,
+    get_translation_meta,
+    run_translation_job,
+    update_translation_meta,
+)
 from app.pipeline.youtube import probe_youtube
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
@@ -76,6 +84,46 @@ def _correction_info(request: Request, video_id: str) -> CorrectionInfo | None:
         models=latest,
         corrected_at=None,
     )
+
+
+def _translation_state(request: Request, video_id: str) -> TranslationState:
+    """Merge the persisted job meta with what is actually on disk / in flight.
+
+    Reality wins over the stored status: a timeline rebuild wipes text_zh
+    without touching the meta, and a backend restart kills the in-flight task
+    without touching it either. Both would otherwise leave the UI staring at a
+    status that can never change.
+    """
+    _, store, _ = _deps(request)
+    meta = get_translation_meta(store, video_id)
+    translated, total = store.count_translatable_segments(video_id)
+    status = str(meta.get("status") or "idle")
+    error = meta.get("error")
+    if status not in {"idle", "running", "done", "failed"}:
+        status = "idle"
+    if status in {"done", "failed"} and translated == 0:
+        status = "idle"
+    if status == "running":
+        task = _translation_tasks(request.app).get(video_id)
+        if task is None or task.done():
+            status, error = "failed", "翻譯中斷（伺服器重啟或已停止），請重新翻譯"
+            update_translation_meta(store, video_id, status=status, error=error)
+    return TranslationState(
+        status=status,
+        translated=translated,
+        total=total,
+        model=meta.get("model"),
+        error=error,
+        updated_at=meta.get("updated_at"),
+    )
+
+
+def _translation_tasks(app) -> dict[str, asyncio.Task]:
+    tasks = getattr(app.state, "translation_tasks", None)
+    if tasks is None:
+        tasks = {}
+        app.state.translation_tasks = tasks
+    return tasks
 
 
 def _media_type_from_name(filename: str) -> tuple[str, str]:
@@ -362,6 +410,7 @@ async def get_timeline(request: Request, video_id: str):
         caption_source=caption,
         can_retranscribe_locally=caption == "auto",
         correction=_correction_info(request, video_id),
+        translation=_translation_state(request, video_id),
         segments=[
             TimelineSegment(
                 id=r["id"],
@@ -370,6 +419,7 @@ async def get_timeline(request: Request, video_id: str):
                 end=r["end"],
                 type=r["type"],
                 text=r["text"],
+                text_zh=r.get("text_zh"),
                 frame_path=r.get("frame_path"),
                 edited=bool(r.get("edited")),
                 speaker=r.get("speaker"),
@@ -413,6 +463,7 @@ async def patch_timeline_segment(
         end=row["end"],
         type=row["type"],
         text=row["text"],
+        text_zh=row.get("text_zh"),
         frame_path=row.get("frame_path"),
         edited=bool(row.get("edited")),
         speaker=row.get("speaker"),
@@ -433,6 +484,75 @@ async def get_correction_diff(request: Request, video_id: str):
         for row in data.get(key) or []:
             items.append(TimelineDiffItem(**row))
     return TimelineDiffResponse(video_id=video_id, items=items)
+
+
+@router.get("/{video_id}/translation", response_model=TranslationState)
+async def get_translation_status(request: Request, video_id: str):
+    _, store, _ = _deps(request)
+    if not store.get_video(video_id):
+        raise HTTPException(404, "Video not found")
+    return _translation_state(request, video_id)
+
+
+@router.post("/{video_id}/translate", response_model=TranslationState)
+async def translate_subtitles(request: Request, video_id: str):
+    """Kick off Traditional Chinese subtitle translation in the background.
+
+    A two-hour talk is dozens of LLM round trips; holding the HTTP request open
+    for that would time out in the browser, so the client polls
+    GET /translation instead.
+    """
+    settings, store, _ = _deps(request)
+    video = store.get_video(video_id)
+    if not video:
+        raise HTTPException(404, "Video not found")
+    if video["status"] != "ready":
+        raise HTTPException(400, "Video not ready")
+
+    tasks = _translation_tasks(request.app)
+    running = tasks.get(video_id)
+    if running and not running.done():
+        raise HTTPException(409, "翻譯已在進行中")
+
+    _, total = store.count_translatable_segments(video_id)
+    if total == 0:
+        raise HTTPException(400, "沒有可翻譯的語音段落")
+
+    from app.pipeline.cloud_llm import CloudLLMClient
+
+    client = CloudLLMClient(settings, store)
+    if not client.configured:
+        raise HTTPException(400, "CLOUD_LLM_BASE_URL 未設定，無法翻譯字幕")
+
+    update_translation_meta(
+        store, video_id, status="running", done=0, total=total, error=None
+    )
+    task = asyncio.create_task(
+        run_translation_job(
+            client=client, settings=settings, store=store, video_id=video_id
+        )
+    )
+    tasks[video_id] = task
+    task.add_done_callback(
+        lambda t, vid=video_id: tasks.pop(vid, None) if tasks.get(vid) is t else None
+    )
+    return _translation_state(request, video_id)
+
+
+@router.get("/{video_id}/subtitles.vtt")
+async def get_subtitles(request: Request, video_id: str, lang: str = "zh"):
+    """WebVTT track for the <video> element (lang=zh|en|both)."""
+    _, store, _ = _deps(request)
+    if not store.get_video(video_id):
+        raise HTTPException(404, "Video not found")
+    if lang not in SUBTITLE_LANGS:
+        raise HTTPException(400, f"lang must be one of {'|'.join(SUBTITLE_LANGS)}")
+    body = build_vtt(store.get_timeline(video_id), lang)
+    return Response(
+        content=body,
+        media_type="text/vtt; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/{video_id}/resume", response_model=VideoCreateResponse)

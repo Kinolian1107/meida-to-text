@@ -1,11 +1,64 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, CorrectionInfo, DiffItem, TimelineSegment } from "../api";
+import {
+  api,
+  CorrectionInfo,
+  DiffItem,
+  TimelineSegment,
+  TranslationState,
+} from "../api";
+import VideoPlayer, { SubtitleMode } from "../components/VideoPlayer";
+
+const SUBTITLE_MODES: { value: SubtitleMode; label: string }[] = [
+  { value: "zh", label: "繁體中文" },
+  { value: "both", label: "中英對照" },
+  { value: "en", label: "原文" },
+  { value: "off", label: "關閉" },
+];
+
+const SUBTITLE_SIZES: { value: string; label: string; scale: number }[] = [
+  { value: "xs", label: "極小", scale: 0.7 },
+  { value: "s", label: "小", scale: 0.85 },
+  { value: "m", label: "中", scale: 1 },
+  { value: "l", label: "大", scale: 1.2 },
+  { value: "xl", label: "特大", scale: 1.45 },
+];
+
+const SUBTITLE_MODE_KEY = "media2text.subtitleMode";
+const SUBTITLE_SIZE_KEY = "media2text.subtitleSize";
+const TRANSLATION_POLL_MS = 2500;
 
 function fmt(t: number) {
   const m = Math.floor(t / 60);
   const s = (t % 60).toFixed(1);
   return `${m}:${s.padStart(4, "0")}`;
+}
+
+function readStoredMode(): SubtitleMode {
+  const stored = localStorage.getItem(SUBTITLE_MODE_KEY);
+  return SUBTITLE_MODES.some((m) => m.value === stored)
+    ? (stored as SubtitleMode)
+    : "zh";
+}
+
+function readStoredSize(): string {
+  const stored = localStorage.getItem(SUBTITLE_SIZE_KEY);
+  return SUBTITLE_SIZES.some((s) => s.value === stored) ? (stored as string) : "m";
+}
+
+function subtitleScaleOf(size: string): number {
+  return SUBTITLE_SIZES.find((s) => s.value === size)?.scale ?? 1;
+}
+
+function translationLabel(t: TranslationState | null): string {
+  if (!t || t.total === 0) return "";
+  if (t.status === "running") return `翻譯中… ${t.translated}/${t.total}`;
+  if (t.status === "failed") return `翻譯失敗：${t.error ?? "未知錯誤"}`;
+  if (t.status === "done") {
+    const partial = t.error ? ` · ${t.error}` : "";
+    return `已翻譯 ${t.translated}/${t.total}${t.model ? ` · ${t.model}` : ""}${partial}`;
+  }
+  return `尚未翻譯（${t.total} 句）`;
 }
 
 function correctionLabel(c: CorrectionInfo | null | undefined): string | null {
@@ -30,6 +83,9 @@ export default function TimelinePage() {
   const [diffs, setDiffs] = useState<DiffItem[]>([]);
   const [showDiff, setShowDiff] = useState(false);
   const [correction, setCorrection] = useState<CorrectionInfo | null>(null);
+  const [translation, setTranslation] = useState<TranslationState | null>(null);
+  const [subtitleMode, setSubtitleMode] = useState<SubtitleMode>(readStoredMode);
+  const [subtitleSize, setSubtitleSize] = useState<string>(readStoredSize);
 
   async function load() {
     const r = await api.timeline(id);
@@ -37,6 +93,7 @@ export default function TimelinePage() {
     setCaption(r.caption_source);
     setCanRetranscribe(r.can_retranscribe_locally || r.caption_source === "auto");
     setCorrection(r.correction ?? null);
+    setTranslation(r.translation ?? null);
     const st = await api.status(id);
     setMediaType(st.source_type.includes("audio") ? "audio" : "video");
     if (!r.correction && st.correction) setCorrection(st.correction);
@@ -50,6 +107,40 @@ export default function TimelinePage() {
   useEffect(() => {
     load().catch((e) => setError(String(e)));
   }, [id]);
+
+  useEffect(() => {
+    localStorage.setItem(SUBTITLE_MODE_KEY, subtitleMode);
+  }, [subtitleMode]);
+
+  useEffect(() => {
+    localStorage.setItem(SUBTITLE_SIZE_KEY, subtitleSize);
+  }, [subtitleSize]);
+
+  useEffect(() => {
+    if (translation?.status !== "running") return;
+    const timer = window.setInterval(async () => {
+      try {
+        const st = await api.translationStatus(id);
+        setTranslation(st);
+        if (st.status !== "running") {
+          window.clearInterval(timer);
+          await load();
+        }
+      } catch {
+        // transient poll failure: keep the interval and try again
+      }
+    }, TRANSLATION_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [translation?.status, id]);
+
+  async function onTranslate() {
+    setError(null);
+    try {
+      setTranslation(await api.translateSubtitles(id));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   function seekTo(t: number) {
     const el = mediaRef.current;
@@ -138,14 +229,74 @@ export default function TimelinePage() {
             src={api.mediaUrl(id)}
           />
         ) : (
-          <video
-            className="media-player"
-            ref={(el) => {
+          <VideoPlayer
+            src={api.mediaUrl(id)}
+            segments={segments}
+            subtitleMode={subtitleMode}
+            subtitleScale={subtitleScaleOf(subtitleSize)}
+            onMediaElement={(el) => {
               mediaRef.current = el;
             }}
-            controls
-            src={api.mediaUrl(id)}
           />
+        )}
+        {mediaType === "video" && (
+          <div className="row subtitle-bar">
+            <label htmlFor="subtitle-mode">字幕</label>
+            <select
+              id="subtitle-mode"
+              value={subtitleMode}
+              onChange={(e) => setSubtitleMode(e.target.value as SubtitleMode)}
+            >
+              {SUBTITLE_MODES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="subtitle-size">字級</label>
+            <select
+              id="subtitle-size"
+              value={subtitleSize}
+              onChange={(e) => setSubtitleSize(e.target.value)}
+              disabled={subtitleMode === "off"}
+            >
+              {SUBTITLE_SIZES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="secondary"
+              disabled={
+                busy ||
+                translation?.status === "running" ||
+                (translation?.total ?? 0) === 0
+              }
+              onClick={onTranslate}
+            >
+              {translation && translation.translated > 0
+                ? "重新翻譯字幕"
+                : "翻譯字幕（繁中）"}
+            </button>
+            {subtitleMode !== "off" && (
+              <a
+                className="secondary"
+                href={api.subtitlesUrl(id, subtitleMode)}
+                download={`${id}.${subtitleMode}.vtt`}
+              >
+                下載 VTT
+              </a>
+            )}
+            <span className="muted">{translationLabel(translation)}</span>
+          </div>
+        )}
+        {mediaType === "video" && (
+          <p className="muted vp-hints">
+            快捷鍵：← / → 前後 1 秒 · Shift + ← / → 5 秒 · Ctrl + ← / → 30 秒 ·
+            Space 播放暫停 · F 全螢幕 · M 靜音（先點一下播放器）
+          </p>
         )}
         <div className="row" style={{ marginTop: "0.75rem" }}>
           <button type="button" className="secondary" disabled={busy} onClick={onRebuild}>
@@ -226,16 +377,19 @@ export default function TimelinePage() {
                 </div>
               </div>
             ) : (
-              <div
-                className="segment-text"
-                onDoubleClick={() => {
-                  setEditing(seg.id);
-                  setDraft(seg.text);
-                }}
-                title="雙擊編輯"
-              >
-                {seg.text}
-              </div>
+              <>
+                <div
+                  className="segment-text"
+                  onDoubleClick={() => {
+                    setEditing(seg.id);
+                    setDraft(seg.text);
+                  }}
+                  title="雙擊編輯"
+                >
+                  {seg.text}
+                </div>
+                {seg.text_zh && <div className="segment-text zh">{seg.text_zh}</div>}
+              </>
             )}
             {seg.type === "frame" && seg.frame_path && (
               <img

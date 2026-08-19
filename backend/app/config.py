@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     cloud_llm_api_key: str = ""
     cloud_llm_model: str = ""
 
+    # Subtitle translation packs this many estimated tokens into each request
+    # (segments are never split, so a batch may overshoot by one segment).
+    # Raise it for fewer, larger round trips; lower it if the model starts
+    # truncating replies.
+    translation_chunk_tokens: int = 5000
+
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_embedding_model: str = "bge-m3"
     embed_dim: int = 1024

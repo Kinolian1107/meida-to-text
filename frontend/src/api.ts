@@ -78,9 +78,21 @@ export type TimelineSegment = {
   end: number;
   type: "speech" | "frame";
   text: string;
+  text_zh: string | null;
   frame_path: string | null;
   edited: boolean;
   speaker?: string | null;
+};
+
+export type SubtitleLang = "zh" | "en" | "both";
+
+export type TranslationState = {
+  status: "idle" | "running" | "done" | "failed";
+  translated: number;
+  total: number;
+  model: string | null;
+  error: string | null;
+  updated_at: string | null;
 };
 
 export type DiffItem = {
@@ -175,7 +187,14 @@ export const api = {
       can_retranscribe_locally: boolean;
       segments: TimelineSegment[];
       correction?: CorrectionInfo | null;
+      translation?: TranslationState | null;
     }>(`/api/videos/${id}/timeline`),
+  translationStatus: (id: string) =>
+    req<TranslationState>(`/api/videos/${id}/translation`),
+  translateSubtitles: (id: string) =>
+    req<TranslationState>(`/api/videos/${id}/translate`, { method: "POST" }),
+  subtitlesUrl: (id: string, lang: SubtitleLang, version = 0) =>
+    `/api/videos/${id}/subtitles.vtt?lang=${lang}&v=${version}`,
   diff: (id: string) =>
     req<{ video_id: string; items: DiffItem[] }>(`/api/videos/${id}/diff`),
   patchSegment: (videoId: string, segmentId: string, text: string) =>

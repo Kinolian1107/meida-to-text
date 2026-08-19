@@ -461,6 +461,14 @@ button.tag-chip {
   color: color-mix(in srgb, var(--ink) 88%, var(--accent));
 }
 
+.segment-text.zh {
+  margin-top: 0.3rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: color-mix(in srgb, var(--ink) 82%, var(--accent));
+  cursor: default;
+}
+
 .seg-meta {
   font-size: 0.8rem;
   color: var(--muted);
@@ -494,6 +502,225 @@ button.tag-chip {
   max-height: none;
   background: transparent;
   border: none;
+}
+
+/*
+ * Custom player shell. The native controls were dropped on purpose: their bar
+ * paints a fixed gradient scrim over the picture, and cue placement is left to
+ * the user agent, which parks subtitles well above the bottom edge. Owning the
+ * chrome makes the bar a flat translucent strip and pins subtitles to the
+ * bottom — right above the bar, dropping to the very edge once it auto-hides.
+ */
+.vp {
+  position: relative;
+  width: 100%;
+  background: #0a0d10;
+  border: 1px solid var(--line);
+  line-height: 0;
+  outline: none;
+}
+
+.vp:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+
+.vp-video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  background: #000;
+}
+
+.vp.fullscreen {
+  border: none;
+  height: 100%;
+}
+
+.vp.fullscreen .vp-video {
+  height: 100vh;
+  max-height: none;
+  object-fit: contain;
+}
+
+/*
+ * Hover strip along the bottom edge. The bar is bound to hovering this strip
+ * rather than to an idle timer, so it is never left on screen after a pause and
+ * never flashes up for a keyboard seek.
+ */
+.vp-dock {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: flex-end;
+  height: 4.5rem;
+}
+
+.vp-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  line-height: normal;
+  /* Flat translucent strip: no gradient scrim, and no blur — frosting the
+     backdrop washes out the picture it is sitting on. */
+  background: rgba(10, 14, 18, 0.42);
+  opacity: 0;
+  transform: translateY(100%);
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+/* `:has` keeps the bar up while a slider is being dragged, even once the
+   pointer has been dragged outside the strip. */
+.vp-dock:hover .vp-controls,
+.vp-controls:has(input:active) {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.vp-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #e6edf3;
+  cursor: pointer;
+}
+
+.vp-icon:hover {
+  background: transparent;
+  color: var(--accent);
+}
+
+.vp-icon svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: currentColor;
+}
+
+.vp-time {
+  flex: 0 0 auto;
+  color: #dfe7ee;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vp-seek,
+.vp-volume {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.vp-seek {
+  flex: 1 1 auto;
+  min-width: 80px;
+}
+
+.vp-volume {
+  flex: 0 0 auto;
+  width: 70px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.vp-seek::-webkit-slider-thumb,
+.vp-volume::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.vp-seek::-moz-range-thumb,
+.vp-volume::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.vp-seek::-moz-range-track,
+.vp-volume::-moz-range-track {
+  background: transparent;
+}
+
+.vp-rate {
+  flex: 0 0 auto;
+  padding: 0.1rem 0.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e6edf3;
+  font-size: 0.76rem;
+}
+
+.vp-subtitles {
+  position: absolute;
+  inset: auto 0 1.5% 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.14em;
+  padding: 0 4%;
+  line-height: 1.3;
+  /* Scales with the player; --vp-sub-scale is the user's size setting. */
+  font-size: calc(clamp(0.95rem, 1.55vw, 2.1rem) * var(--vp-sub-scale, 1));
+  text-align: center;
+  pointer-events: none;
+  transition: bottom 0.14s ease;
+}
+
+/* Step up out of the way only while the bar is actually showing. */
+.vp:has(.vp-dock:hover) .vp-subtitles,
+.vp:has(.vp-controls input:active) .vp-subtitles {
+  bottom: 3.4rem;
+}
+
+.vp-sub-line {
+  max-width: 100%;
+  margin: 0;
+  padding: 0.06em 0.45em;
+  border-radius: 2px;
+  background: rgba(8, 12, 16, 0.62);
+  color: #f4f7fa;
+}
+
+.vp-sub-line.dim {
+  background: rgba(8, 12, 16, 0.5);
+  color: #c6d1dc;
+  font-size: 0.82em;
+}
+
+.vp-hints {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+}
+
+.subtitle-bar {
+  align-items: center;
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+}
+
+.subtitle-bar label {
+  color: var(--muted);
+  font-size: 0.92rem;
 }
 
 .tabs {

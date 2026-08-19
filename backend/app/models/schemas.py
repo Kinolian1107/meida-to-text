@@ -116,9 +116,21 @@ class TimelineSegment(BaseModel):
     end: float
     type: Literal["speech", "frame"]
     text: str
+    text_zh: str | None = None
     frame_path: str | None = None
     edited: bool = False
     speaker: str | None = None
+
+
+class TranslationState(BaseModel):
+    """Progress of the Traditional Chinese subtitle translation job."""
+
+    status: Literal["idle", "running", "done", "failed"] = "idle"
+    translated: int = 0
+    total: int = 0
+    model: str | None = None
+    error: str | None = None
+    updated_at: str | None = None
 
 
 class TimelineResponse(BaseModel):
@@ -127,6 +139,7 @@ class TimelineResponse(BaseModel):
     can_retranscribe_locally: bool = False
     segments: list[TimelineSegment]
     correction: CorrectionInfo | None = None
+    translation: TranslationState | None = None
 
 
 class TimelineDiffItem(BaseModel):
