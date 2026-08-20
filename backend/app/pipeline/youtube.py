@@ -77,9 +77,17 @@ def _ytdlp_base_opts(settings: Settings) -> dict[str, Any]:
         "js_runtimes": {"deno": {"path": _js_runtime_path(settings)}},
         **_cookie_opts(settings),
     }
+    extractor_args: dict[str, dict[str, list[str]]] = {}
     clients = _player_clients(settings)
     if clients:
-        opts["extractor_args"] = {"youtube": {"player_client": clients}}
+        extractor_args["youtube"] = {"player_client": clients}
+    pot_provider_url = settings.ytdlp_pot_provider_url.strip()
+    if pot_provider_url:
+        extractor_args["youtubepot-bgutilhttp"] = {
+            "base_url": [pot_provider_url]
+        }
+    if extractor_args:
+        opts["extractor_args"] = extractor_args
     return opts
 
 

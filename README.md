@@ -7,23 +7,19 @@
 ## 快速開始（WSL2 → Windows HOST 可連）
 
 ```bash
-# 後端（預設綁 0.0.0.0:8000）
+# 後端（預設綁 0.0.0.0:10002）
 cp .env.example .env   # 填 CLOUD_LLM_*、QWEN_VL_*（可選）
 ./scripts/start_backend.sh
 
-# 前端（另開終端，綁 0.0.0.0:5173）
+# 前端（另開終端，綁 0.0.0.0:10001）
 ./scripts/start_frontend.sh
 ```
 
 在 **Windows HOST** 瀏覽器開啟：
 
-- UI: `http://localhost:5173`（WSL2 預設開 localhost forwarding，實測可直接連）
-- API health: `http://localhost:8000/health`
-- 若 `localhost` 連不到，先查 WSL IP：`hostname -I | awk '{print $1}'`，改開 `http://<WSL_IP>:5173`
-
-> 若 `localhost`／WSL IP 都連不到，在 Windows PowerShell（系統管理員）執行：  
-> `netsh interface portproxy add v4tov4 listenport=5173 listenaddress=0.0.0.0 connectport=5173 connectaddress=<WSL_IP>`  
-> 並對 8000 做同樣設定。
+- UI: `http://localhost:10001`
+- API health: `http://localhost:10002/health`
+- WSL mirrored networking 下，區網裝置可用 `http://<Windows-LAN-IP>:10001`；Windows Hyper-V 防火牆只需放行前端埠。
 
 ## 開機自動啟動（systemd）
 
@@ -47,7 +43,7 @@ sudo ./scripts/systemd/install.sh
 systemctl status media2text-potprovider.service media2text-backend.service media2text-frontend.service
 journalctl -u media2text-backend.service -f   # 看 log
 sudo systemctl restart media2text-backend.service
-curl http://127.0.0.1:4416/ping               # PO Token provider 健康檢查
+curl http://127.0.0.1:14416/ping              # PO Token provider 健康檢查
 ```
 
 > 三個 service 都用 `User=kino` 執行（非 root），backend 會在啟動時 `source .env`；改了 `.env` 記得 `sudo systemctl restart` 才會生效。frontend 用 Vite dev server（跟手動啟動方式一致，非 production build）。

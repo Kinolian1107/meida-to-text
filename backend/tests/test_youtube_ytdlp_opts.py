@@ -28,7 +28,7 @@ def test_omits_player_client_when_setting_is_blank():
     opts = ytdlp_base_opts(settings)
 
     # Assert
-    assert "extractor_args" not in opts
+    assert "youtube" not in opts["extractor_args"]
 
 
 def test_splits_and_trims_comma_separated_clients():
@@ -40,6 +40,35 @@ def test_splits_and_trims_comma_separated_clients():
 
     # Assert
     assert opts["extractor_args"]["youtube"]["player_client"] == ["tv_simply", "web"]
+
+
+def test_configures_nondefault_pot_provider_port():
+    # Arrange
+    settings = _settings(
+        ytdlp_pot_provider_url="http://127.0.0.1:14416",
+    )
+
+    # Act
+    opts = ytdlp_base_opts(settings)
+
+    # Assert
+    assert opts["extractor_args"]["youtubepot-bgutilhttp"]["base_url"] == [
+        "http://127.0.0.1:14416"
+    ]
+
+
+def test_omits_all_extractor_args_when_provider_and_clients_are_blank():
+    # Arrange
+    settings = _settings(
+        ytdlp_player_clients="",
+        ytdlp_pot_provider_url="",
+    )
+
+    # Act
+    opts = ytdlp_base_opts(settings)
+
+    # Assert
+    assert "extractor_args" not in opts
 
 
 def test_resolves_deno_next_to_the_running_interpreter(monkeypatch, tmp_path):

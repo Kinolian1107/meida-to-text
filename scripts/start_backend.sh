@@ -24,6 +24,6 @@ set -a && source .env && set +a
 
 export PYTHONPATH="$ROOT/backend:${PYTHONPATH:-}"
 HOST="${API_HOST:-0.0.0.0}"
-PORT="${API_PORT:-8000}"
+PORT="${API_PORT:-10002}"
 echo "Starting API on http://${HOST}:${PORT} (WSL2: use Windows host IP / localhost forwarded)"
 exec uvicorn app.main:app --host "$HOST" --port "$PORT" --reload

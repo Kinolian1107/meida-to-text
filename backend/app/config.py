@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     max_download_bytes: int = 4_294_967_296
     youtube_cookies_file: str = ""
     ytdlp_sleep_seconds: int = 5
+    ytdlp_pot_provider_url: str = "http://127.0.0.1:14416"
     # Comma-separated yt-dlp player clients; empty hands the choice back to yt-dlp.
     # Pinned because yt-dlp's own default (android_vr) now 403s on every media URL,
     # and web_safari is SABR-only. Overridable so a future YouTube change is a
@@ -70,9 +71,9 @@ class Settings(BaseSettings):
 
     # Bind 0.0.0.0 so Windows HOST can reach WSL2 services
     api_host: str = "0.0.0.0"
-    api_port: int = 8000
+    api_port: int = 10002
     cors_origins: str = (
-        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:10001,http://127.0.0.1:10001,"
         "http://localhost:4173,http://127.0.0.1:4173"
     )
 
@@ -80,8 +81,8 @@ class Settings(BaseSettings):
 
     google_client_id: str = ""
     google_client_secret: str = ""
-    google_redirect_uri: str = "http://127.0.0.1:8000/api/accounts/google/callback"
-    frontend_origin: str = "http://127.0.0.1:5173"
+    google_redirect_uri: str = "http://127.0.0.1:10002/api/accounts/google/callback"
+    frontend_origin: str = "http://127.0.0.1:10001"
 
     # Phase 4: optional Redis/ARQ queue (empty = in-process asyncio.Queue)
     redis_url: str = ""

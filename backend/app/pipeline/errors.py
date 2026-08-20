@@ -54,7 +54,7 @@ class PotProviderUnavailableError(PipelineError):
             "(1) yt-dlp 缺 JS runtime 或 challenge solver，導致只剩會被 403 的 "
             "android_vr 格式可選 —— 確認 .venv 內有 deno 與 yt-dlp-ejs；"
             "(2) YTDLP_PLAYER_CLIENTS 指定的 client 已被 YouTube 淘汰，需要換一組；"
-            "(3) PO Token provider 沒在跑 —— curl http://127.0.0.1:4416/ping 確認"
+            "(3) PO Token provider 沒在跑 —— curl http://127.0.0.1:14416/ping 確認"
         ),
     ) -> None:
         super().__init__("POT_PROVIDER_UNAVAILABLE", message)
