@@ -94,6 +94,8 @@ class VideoListItem(BaseModel):
     caption_source: str = "none"
     progress: int = 0
     error_code: str | None = None
+    source_url: str | None = None
+    has_media: bool = False
     tags: list[TagItem] = Field(default_factory=list)
 
 

@@ -338,6 +338,8 @@ async def list_videos(
                 caption_source=r.get("caption_source") or "none",
                 progress=(job or {}).get("progress") or 0,
                 error_code=r.get("error_code"),
+                source_url=r.get("source_url") or None,
+                has_media=_resolve_media_path(settings, r) is not None,
                 tags=[TagItem(**t) for t in tags_by_video.get(r["id"], [])],
             )
         )
@@ -660,20 +662,32 @@ async def retranscribe_locally(
     return VideoCreateResponse(id=video_id, status="pending")
 
 
+def _resolve_media_path(settings, video: dict) -> Path | None:
+    """Locate the media file kept on disk for a video, or None if it is gone.
+
+    Media is never auto-purged (only DELETE /videos/{id} removes the work dir),
+    but the row can outlive the file if it was cleaned up by hand, so callers
+    must treat a missing file as a normal case.
+    """
+    path = video.get("local_media_path")
+    media_path = Path(path) if path else None
+    if media_path and media_path.exists():
+        return media_path
+    # fallback to work dir media.*
+    work = video_work_dir(settings, video["id"])
+    candidates = list(work.glob("media.*"))
+    candidate = candidates[0] if candidates else None
+    return candidate if candidate and candidate.exists() else None
+
+
 @router.get("/{video_id}/media")
 async def get_media(request: Request, video_id: str):
     settings, store, _ = _deps(request)
     video = store.get_video(video_id)
     if not video:
         raise HTTPException(404, "Video not found")
-    path = video.get("local_media_path")
-    media_path = Path(path) if path else None
-    if not media_path or not media_path.exists():
-        # fallback to work dir media.*
-        work = video_work_dir(settings, video_id)
-        candidates = list(work.glob("media.*"))
-        media_path = candidates[0] if candidates else None
-    if not media_path or not media_path.exists():
+    media_path = _resolve_media_path(settings, video)
+    if not media_path:
         raise HTTPException(404, "Media file not found")
     mime, _ = mimetypes.guess_type(str(media_path))
     return FileResponse(

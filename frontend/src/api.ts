@@ -52,6 +52,8 @@ export type VideoListItem = {
   caption_source: string;
   progress: number;
   error_code: string | null;
+  source_url: string | null;
+  has_media: boolean;
   tags: TagItem[];
 };
 

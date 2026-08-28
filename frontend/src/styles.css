@@ -389,6 +389,73 @@ button.tag-chip {
   min-width: 3rem;
 }
 
+.tag-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.tag-filter-search {
+  width: 12rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.82rem;
+}
+
+.tag-filter-hint {
+  font-size: 0.78rem;
+}
+
+.tag-filter-more {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px dashed var(--line);
+  background: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.tag-filter-more:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.item-added {
+  font-size: 0.78rem;
+  margin-bottom: 0.15rem;
+}
+
+/* 標題本身就是來源入口：hover 才浮出「原始連結／下載」，
+   避免把兩個連結塞進右邊那條操作列把文字擠成一團。 */
+.item-title-wrap {
+  position: relative;
+  outline: none;
+}
+
+.item-source-pop {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 5;
+  display: none;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.item-title-wrap:hover .item-source-pop,
+.item-title-wrap:focus-within .item-source-pop {
+  display: flex;
+}
+
 .pagination {
   display: flex;
   align-items: center;

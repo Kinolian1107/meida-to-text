@@ -8,6 +8,27 @@ import TagFilter from "../components/TagFilter";
 const PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 300;
 
+const SOURCE_LINK_LABELS: Record<string, string> = {
+  youtube: "YouTube 原片",
+  direct_url: "原始網址",
+  google_drive: "Google Drive",
+};
+
+// upload_time 是建立這筆項目（＝加入項目庫）的 UTC ISO 字串，顯示成本地時間。
+function formatAddedAt(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString("zh-TW", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 export default function LibraryPage() {
   const [items, setItems] = useState<VideoListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -143,8 +164,27 @@ export default function LibraryPage() {
         {items.map((v) => (
           <li key={v.id}>
             <div className="item-info">
-              <div className="item-title" title={v.filename}>
-                {v.filename}
+              {formatAddedAt(v.upload_time) && (
+                <div className="muted item-added" title={v.upload_time ?? undefined}>
+                  加入於 {formatAddedAt(v.upload_time)}
+                </div>
+              )}
+              <div className="item-title-wrap" tabIndex={0}>
+                <div className="item-title">{v.filename}</div>
+                {(v.source_url || v.has_media) && (
+                  <div className="item-source-pop">
+                    {v.source_url && (
+                      <a href={v.source_url} target="_blank" rel="noreferrer" title={v.source_url}>
+                        {SOURCE_LINK_LABELS[v.source_type] ?? "來源"} ↗
+                      </a>
+                    )}
+                    {v.has_media && (
+                      <a href={api.mediaUrl(v.id)} download>
+                        下載來源檔
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="muted">
                 {v.source_type} · {v.status} · {v.progress}%
