@@ -3,6 +3,40 @@ from __future__ import annotations
 import io
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
+
+from app.pipeline.source_normalize import AUDIO_EXTS, VIDEO_EXTS
+
+
+def utf8_download_stem(title: str) -> str:
+    stem = title or "export"
+    suffix = Path(stem).suffix.lower()
+    if suffix in AUDIO_EXTS | VIDEO_EXTS:
+        stem = Path(stem).stem
+    cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in stem)
+    return cleaned.strip("._")[:80] or "export"
+
+
+def ascii_download_stem(title: str) -> str:
+    stem = "".join(
+        ch if ch.isascii() and (ch.isalnum() or ch in "-_.") else "_"
+        for ch in utf8_download_stem(title)
+    )
+    return stem[:60].strip("._") or "export"
+
+
+def _ascii_header_filename(name: str) -> str:
+    safe = "".join(ch if ch.isascii() and (ch.isalnum() or ch in "-_.") else "_" for ch in name)
+    return safe.strip("._")[:80] or "export"
+
+
+def content_disposition(ascii_name: str, utf8_name: str) -> str:
+    """RFC 5987 header: latin-1 `filename=` plus UTF-8 `filename*`."""
+    safe_ascii = _ascii_header_filename(ascii_name)
+    return (
+        f'attachment; filename="{safe_ascii}"; '
+        f"filename*=UTF-8''{quote(utf8_name, safe='')}"
+    )
 
 
 def timeline_to_markdown(
@@ -35,7 +69,7 @@ def export_markdown(path: Path, markdown: str) -> Path:
     return path
 
 
-def export_docx(path: Path, title: str, markdown: str) -> Path:
+def _docx_bytes(title: str, markdown: str) -> bytes:
     from docx import Document
 
     doc = Document()
@@ -49,19 +83,23 @@ def export_docx(path: Path, title: str, markdown: str) -> Path:
             doc.add_paragraph(line[2:], style="List Bullet")
         elif line.strip():
             doc.add_paragraph(line)
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def export_docx(path: Path, title: str, markdown: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(str(path))
+    path.write_bytes(_docx_bytes(title, markdown))
     return path
 
 
-def export_pdf(path: Path, title: str, markdown: str) -> Path:
+def _pdf_bytes(title: str, markdown: str) -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.pdfgen import canvas
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Prefer a CJK-capable font if present on the system
     font_name = "Helvetica"
     for candidate in (
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
@@ -78,8 +116,9 @@ def export_pdf(path: Path, title: str, markdown: str) -> Path:
             except Exception:
                 continue
 
-    c = canvas.Canvas(str(path), pagesize=A4)
-    width, height = A4
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    _width, height = A4
     y = height - 48
     c.setFont(font_name, 14)
     c.drawString(48, y, title[:80])
@@ -90,35 +129,30 @@ def export_pdf(path: Path, title: str, markdown: str) -> Path:
             c.showPage()
             c.setFont(font_name, 10)
             y = height - 48
-        # simple wrap
         text = line[:110]
         c.drawString(48, y, text)
         y -= 14
     c.save()
+    return buf.getvalue()
+
+
+def export_pdf(path: Path, title: str, markdown: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(_pdf_bytes(title, markdown))
     return path
 
 
 def build_export_bytes(fmt: str, title: str, markdown: str) -> tuple[bytes, str, str]:
-    """Return (bytes, media_type, filename)."""
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in title)[:60] or "export"
+    """Return (bytes, media_type, ascii filename). CJK belongs in filename* only."""
+    safe = ascii_download_stem(title)
     if fmt == "md":
-        data = markdown.encode("utf-8")
-        return data, "text/markdown; charset=utf-8", f"{safe}.md"
+        return markdown.encode("utf-8"), "text/markdown; charset=utf-8", f"{safe}.md"
     if fmt == "docx":
-        buf = io.BytesIO()
-        tmp = Path("/tmp") / f"{safe}.docx"
-        export_docx(tmp, title, markdown)
-        data = tmp.read_bytes()
-        tmp.unlink(missing_ok=True)
         return (
-            data,
+            _docx_bytes(title, markdown),
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             f"{safe}.docx",
         )
     if fmt == "pdf":
-        tmp = Path("/tmp") / f"{safe}.pdf"
-        export_pdf(tmp, title, markdown)
-        data = tmp.read_bytes()
-        tmp.unlink(missing_ok=True)
-        return data, "application/pdf", f"{safe}.pdf"
+        return _pdf_bytes(title, markdown), "application/pdf", f"{safe}.pdf"
     raise ValueError(f"Unsupported format: {fmt}")

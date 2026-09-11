@@ -315,6 +315,16 @@ export default function TimelinePage() {
           >
             {showDiff ? "隱藏校正 Diff" : `校正 Diff（${diffs.length}）`}
           </button>
+          <a
+            className="secondary"
+            href={api.subtitlesSrtUrl(
+              id,
+              mediaType === "audio" || subtitleMode === "off" ? "zh" : subtitleMode,
+            )}
+            download={`${id}.srt`}
+          >
+            匯出 SRT
+          </a>
           <a className="secondary" href={api.exportUrl(id, "md")}>
             匯出 MD
           </a>

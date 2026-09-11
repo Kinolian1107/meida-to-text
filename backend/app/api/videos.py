@@ -6,7 +6,6 @@ import logging
 import mimetypes
 import shutil
 from pathlib import Path
-
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 
@@ -36,13 +35,20 @@ from app.models.schemas import (
     YoutubeSubmitRequest,
 )
 from app.pipeline.embeddings import embed_text_remote
-from app.pipeline.export_docs import build_export_bytes, timeline_to_markdown
+from app.pipeline.export_docs import (
+    ascii_download_stem,
+    build_export_bytes,
+    content_disposition,
+    timeline_to_markdown,
+    utf8_download_stem,
+)
 from app.pipeline.merge import load_correction_meta
 from app.pipeline.source_normalize import save_upload, video_work_dir
 from app.pipeline.summarize import generate_summary
 from app.pipeline.tagging import finalize_summary_extras
 from app.pipeline.translate import (
     SUBTITLE_LANGS,
+    build_srt,
     build_vtt,
     get_translation_meta,
     run_translation_job,
@@ -545,15 +551,51 @@ async def translate_subtitles(request: Request, video_id: str):
 async def get_subtitles(request: Request, video_id: str, lang: str = "zh"):
     """WebVTT track for the <video> element (lang=zh|en|both)."""
     _, store, _ = _deps(request)
-    if not store.get_video(video_id):
+    video = store.get_video(video_id)
+    if not video:
         raise HTTPException(404, "Video not found")
     if lang not in SUBTITLE_LANGS:
         raise HTTPException(400, f"lang must be one of {'|'.join(SUBTITLE_LANGS)}")
     body = build_vtt(store.get_timeline(video_id), lang)
+    title = video.get("filename") or video_id
     return Response(
         content=body,
         media_type="text/vtt; charset=utf-8",
-        headers={"Cache-Control": "no-store"},
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": content_disposition(
+                f"{ascii_download_stem(title)}.{lang}.vtt",
+                f"{utf8_download_stem(title)}.{lang}.vtt",
+            ),
+        },
+    )
+
+
+def _subtitle_download_name(title: str, lang: str, ext: str) -> tuple[str, str]:
+    return (
+        f"{ascii_download_stem(title)}.{lang}.{ext}",
+        f"{utf8_download_stem(title)}.{lang}.{ext}",
+    )
+
+
+@router.get("/{video_id}/subtitles.srt")
+async def get_subtitles_srt(request: Request, video_id: str, lang: str = "zh"):
+    """Download timeline speech as SubRip (lang=zh|en|both)."""
+    _, store, _ = _deps(request)
+    video = store.get_video(video_id)
+    if not video:
+        raise HTTPException(404, "Video not found")
+    if lang not in SUBTITLE_LANGS:
+        raise HTTPException(400, f"lang must be one of {'|'.join(SUBTITLE_LANGS)}")
+    body = build_srt(store.get_timeline(video_id), lang)
+    ascii_name, utf8_name = _subtitle_download_name(video.get("filename") or video_id, lang, "srt")
+    return Response(
+        content=body,
+        media_type="application/x-subrip; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": content_disposition(ascii_name, utf8_name),
+        },
     )
 
 
@@ -591,14 +633,17 @@ async def export_video(
         data, media_type, filename = build_export_bytes(fmt, title, markdown)
     except Exception as exc:
         raise HTTPException(500, f"Export failed: {exc}") from exc
-    # also persist under work dir
-    out = video_work_dir(settings, video_id) / "exports" / filename
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(data)
+    utf8_name = f"{utf8_download_stem(title)}.{fmt}"
+    try:
+        out = video_work_dir(settings, video_id) / "exports" / utf8_name
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(data)
+    except Exception:
+        logger.exception("Failed to persist export %s for %s", utf8_name, video_id)
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, utf8_name)},
     )
 
 

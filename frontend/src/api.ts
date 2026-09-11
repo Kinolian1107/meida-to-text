@@ -197,6 +197,8 @@ export const api = {
     req<TranslationState>(`/api/videos/${id}/translate`, { method: "POST" }),
   subtitlesUrl: (id: string, lang: SubtitleLang, version = 0) =>
     `/api/videos/${id}/subtitles.vtt?lang=${lang}&v=${version}`,
+  subtitlesSrtUrl: (id: string, lang: SubtitleLang, version = 0) =>
+    `/api/videos/${id}/subtitles.srt?lang=${lang}&v=${version}`,
   diff: (id: string) =>
     req<{ video_id: string; items: DiffItem[] }>(`/api/videos/${id}/diff`),
   patchSegment: (videoId: string, segmentId: string, text: string) =>

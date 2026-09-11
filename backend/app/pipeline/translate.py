@@ -394,16 +394,33 @@ def _persist_chunk(
 # --- WebVTT -----------------------------------------------------------------
 
 
-def _fmt_ts(seconds: float) -> str:
+def _fmt_ts(seconds: float, frac: str = ".") -> str:
     ms = max(0, round(seconds * 1000))
     hours, rest = divmod(ms, 3_600_000)
     minutes, rest = divmod(rest, 60_000)
     secs, millis = divmod(rest, 1000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}{frac}{millis:03d}"
 
 
 def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _plain_cue_body(segment: dict[str, Any], lang: str) -> str:
+    original = (segment.get("text") or "").strip()
+    zh = (segment.get("text_zh") or "").strip()
+    if lang == "en":
+        text = original
+    elif lang == "zh":
+        text = zh or original
+    elif not zh:
+        text = original
+    elif not original:
+        text = zh
+    else:
+        text = f"{zh}\n{original}"
+    # SRT cues are split on blank lines; collapse them so one segment stays one cue.
+    return re.sub(r"\n\s*\n+", "\n", text).strip()
 
 
 def _cue_body(segment: dict[str, Any], lang: str) -> str:
@@ -421,16 +438,17 @@ def _cue_body(segment: dict[str, Any], lang: str) -> str:
     return f"{_escape(zh)}\n<c.orig>{_escape(original)}</c.orig>"
 
 
-def build_vtt(segments: list[dict[str, Any]], lang: str = "zh") -> str:
-    """Render speech segments as a WebVTT track for a <track> element."""
+def _speech_cues(
+    segments: list[dict[str, Any]], lang: str, *, body_fn
+) -> list[tuple[float, float, str]]:
     if lang not in SUBTITLE_LANGS:
         raise ValueError(f"lang must be one of {SUBTITLE_LANGS}")
     speech = [s for s in segments if s.get("type") == "speech"]
     speech.sort(key=lambda s: float(s.get("start") or 0.0))
 
-    lines = ["WEBVTT", ""]
+    cues: list[tuple[float, float, str]] = []
     for i, segment in enumerate(speech):
-        body = _cue_body(segment, lang)
+        body = body_fn(segment, lang)
         if not body:
             continue
         start = max(0.0, float(segment.get("start") or 0.0))
@@ -439,8 +457,28 @@ def build_vtt(segments: list[dict[str, Any]], lang: str = "zh") -> str:
             # Never overlap the next cue: two stacked cues cover twice the frame.
             next_start = float(speech[i + 1].get("start") or 0.0)
             end = min(end, max(next_start, start + 0.05))
-        lines.append(str(i + 1))
+        cues.append((start, end, body))
+    return cues
+
+
+def build_vtt(segments: list[dict[str, Any]], lang: str = "zh") -> str:
+    """Render speech segments as a WebVTT track for a <track> element."""
+    lines = ["WEBVTT", ""]
+    for i, (start, end, body) in enumerate(_speech_cues(segments, lang, body_fn=_cue_body), 1):
+        lines.append(str(i))
         lines.append(f"{_fmt_ts(start)} --> {_fmt_ts(end)}")
         lines.append(body)
         lines.append("")
     return "\n".join(lines)
+
+
+def build_srt(segments: list[dict[str, Any]], lang: str = "zh") -> str:
+    """Render speech segments as SubRip (SRT). Players treat the text as plain."""
+    blocks: list[str] = []
+    for i, (start, end, body) in enumerate(
+        _speech_cues(segments, lang, body_fn=_plain_cue_body), 1
+    ):
+        blocks.append(
+            f"{i}\n{_fmt_ts(start, ',')} --> {_fmt_ts(end, ',')}\n{body}"
+        )
+    return "\n\n".join(blocks) + ("\n" if blocks else "")

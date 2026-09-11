@@ -12,6 +12,7 @@ from app.pipeline.translate import (
     _parse_translation,
     _salvage_objects,
     estimate_tokens,
+    build_srt,
     build_vtt,
     get_translation_meta,
     run_translation_job,
@@ -408,6 +409,57 @@ def test_build_vtt_clamps_overlapping_and_zero_length_cues():
 def test_build_vtt_rejects_unknown_lang():
     with pytest.raises(ValueError):
         build_vtt([], "fr")
+
+
+def test_build_srt_uses_comma_timestamps_and_plain_text():
+    segments = [
+        {"id": "a", "start": 0.0, "end": 6.6, "type": "speech", "text": "Hi", "text_zh": "嗨"},
+        {"id": "b", "start": 6.6, "end": 11.4, "type": "speech", "text": "Bye", "text_zh": ""},
+        {"id": "f", "start": 1.0, "end": 1.0, "type": "frame", "text": "slide"},
+    ]
+    srt = build_srt(segments, "zh")
+    assert srt.startswith("1\n00:00:00,000 --> 00:00:06,600\n嗨\n")
+    assert "Bye" in srt
+    assert "<c.orig>" not in srt
+    assert "WEBVTT" not in srt
+
+
+def test_build_srt_both_stacks_without_markup():
+    segments = [
+        {"id": "a", "start": 0.0, "end": 2.0, "type": "speech", "text": "a < b", "text_zh": "嗨"}
+    ]
+    body = build_srt(segments, "both")
+    assert "嗨\na < b" in body
+    assert "&lt;" not in body
+
+
+def test_build_srt_collapses_blank_lines_inside_a_cue():
+    segments = [
+        {
+            "id": "a",
+            "start": 0.0,
+            "end": 2.0,
+            "type": "speech",
+            "text": "one\n\n\ntwo",
+            "text_zh": "",
+        }
+    ]
+    srt = build_srt(segments, "en")
+    assert "one\ntwo" in srt
+    assert "one\n\ntwo" not in srt
+    assert srt.strip().count("\n\n") == 0
+
+
+def test_build_srt_clamps_overlap_and_rejects_unknown_lang():
+    segments = [
+        {"id": "a", "start": 0.0, "end": 5.0, "type": "speech", "text": "one"},
+        {"id": "b", "start": 3.0, "end": 3.0, "type": "speech", "text": "two"},
+    ]
+    lines = build_srt(segments, "en").splitlines()
+    assert "00:00:00,000 --> 00:00:03,000" in lines
+    assert "00:00:03,000 --> 00:00:03,400" in lines
+    with pytest.raises(ValueError):
+        build_srt([], "fr")
 
 
 # --- token budgeting --------------------------------------------------------
