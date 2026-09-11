@@ -14,9 +14,12 @@ ExecStart=/usr/bin/docker run --rm --name bgutil-provider -p 127.0.0.1:14416:441
 ExecStop=/usr/bin/docker stop bgutil-provider
 # Hold the unit "starting" until the provider actually answers, so the backend
 # (which orders itself After= this unit) never races ahead and 403s.
-ExecStartPost=/bin/bash -c 'for i in $(seq 1 30); do /usr/bin/curl -sf -m 2 http://127.0.0.1:14416/ping >/dev/null && exit 0; sleep 1; done; echo "bgutil provider did not become ready" >&2; exit 1'
-Restart=on-failure
+ExecStartPost=/bin/bash -c 'for i in $(seq 1 60); do /usr/bin/curl -sf -m 2 http://127.0.0.1:14416/ping >/dev/null && exit 0; sleep 1; done; echo "bgutil provider did not become ready" >&2; exit 1'
+TimeoutStartSec=180
+Restart=always
 RestartSec=5
+StartLimitBurst=30
+StartLimitIntervalSec=300
 StandardOutput=journal
 StandardError=journal
 

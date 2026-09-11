@@ -30,3 +30,23 @@ systemctl enable --now \
 
 echo "Installed. Check status with:"
 echo "  systemctl status media2text-potprovider.service media2text-backend.service media2text-frontend.service"
+
+echo
+echo "WSL systemd only starts after the distro itself is running."
+WIN_PS1="$(wslpath -w "$ROOT/scripts/windows/register-wsl-autostart.ps1")"
+POWERSHELL=""
+for candidate in \
+  /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe \
+  /mnt/c/Windows/System32/powershell.exe; do
+  if [[ -x "$candidate" ]]; then
+    POWERSHELL="$candidate"
+    break
+  fi
+done
+echo "Register the Windows logon task from a WSL shell (no sudo / no Administrator):"
+echo "  powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$WIN_PS1\""
+if [[ -n "$POWERSHELL" ]]; then
+  echo "Registering Windows logon autostart now..."
+  "$POWERSHELL" -NoProfile -ExecutionPolicy Bypass -File "$WIN_PS1" \
+    || echo "Windows autostart registration failed; run the command above from a WSL shell (not via sudo)."
+fi

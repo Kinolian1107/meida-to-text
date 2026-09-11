@@ -9,8 +9,10 @@ User=kino
 Group=kino
 WorkingDirectory=/home/kino/git/media2text/frontend
 ExecStart=/bin/bash -c 'export NVM_DIR=/home/kino/.nvm; source "$NVM_DIR/nvm.sh"; exec npm run dev -- --host 0.0.0.0 --port 10001'
-Restart=on-failure
+Restart=always
 RestartSec=5
+StartLimitBurst=30
+StartLimitIntervalSec=300
 StandardOutput=journal
 StandardError=journal
 

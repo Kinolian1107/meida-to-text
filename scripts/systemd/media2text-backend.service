@@ -14,8 +14,10 @@ User=kino
 Group=kino
 WorkingDirectory=/home/kino/git/media2text
 ExecStart=/bin/bash -c 'set -a; source /home/kino/git/media2text/.env; set +a; export PYTHONPATH=/home/kino/git/media2text/backend; exec /home/kino/git/media2text/.venv/bin/uvicorn app.main:app --host "${API_HOST:-0.0.0.0}" --port "${API_PORT:-10002}"'
-Restart=on-failure
+Restart=always
 RestartSec=5
+StartLimitBurst=30
+StartLimitIntervalSec=300
 StandardOutput=journal
 StandardError=journal
 
