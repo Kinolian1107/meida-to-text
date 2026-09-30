@@ -192,6 +192,34 @@ class BatchUploadResponse(BaseModel):
     ids: list[str]
 
 
+class ExistingLookupItem(BaseModel):
+    source_type: Literal["youtube", "direct_url", "google_drive", "upload"]
+    url: str | None = None
+    filename: str | None = None
+    size: int | None = Field(default=None, ge=0)
+
+
+class ExistingLookupRequest(BaseModel):
+    items: list[ExistingLookupItem] = Field(min_length=1, max_length=200)
+
+
+class ExistingMatch(BaseModel):
+    item_index: int
+    id: str
+    filename: str
+    source_type: str
+    source_url: str | None = None
+    status: str
+    progress: int = 0
+    upload_time: str | None = None
+    match_reason: Literal["youtube_id", "drive_id", "url", "filename"]
+    size_matched: bool | None = None
+
+
+class ExistingLookupResponse(BaseModel):
+    matches: list[ExistingMatch]
+
+
 class SummarizeRequest(BaseModel):
     prompt_template: str = "bullet_points"
     custom_prompt: str | None = None

@@ -17,6 +17,9 @@ from app.models.schemas import (
     BatchUploadResponse,
     CorrectionInfo,
     DirectUrlSubmitRequest,
+    ExistingLookupRequest,
+    ExistingLookupResponse,
+    ExistingMatch,
     GoogleDriveSubmitRequest,
     RetranscribeRequest,
     SummarizeRequest,
@@ -43,6 +46,7 @@ from app.pipeline.export_docs import (
     utf8_download_stem,
 )
 from app.pipeline.merge import load_correction_meta
+from app.pipeline.source_identity import LookupQuery, collect_matches
 from app.pipeline.source_normalize import save_upload, video_work_dir
 from app.pipeline.summarize import generate_summary
 from app.pipeline.tagging import finalize_summary_extras
@@ -288,6 +292,50 @@ async def from_google_drive(request: Request, body: GoogleDriveSubmitRequest):
         store.update_video(video_id, used_account=body.account_id)
     await worker.enqueue(video_id)
     return VideoCreateResponse(id=video_id, status="pending")
+
+
+@router.post("/lookup-existing", response_model=ExistingLookupResponse)
+async def lookup_existing(request: Request, body: ExistingLookupRequest):
+    """Find library items that look like the media the user is about to add."""
+    settings, store, _ = _deps(request)
+    queries = [
+        LookupQuery(
+            source_type=item.source_type,
+            url=item.url,
+            filename=item.filename,
+            size=item.size,
+        )
+        for item in body.items
+    ]
+    videos = store.list_videos()
+    upload_sizes: dict[str, int] = {}
+    if any(q.source_type == "upload" for q in queries):
+        for video in videos:
+            if video.get("source_type") not in {"upload_video", "upload_audio"}:
+                continue
+            size = _existing_media_size(settings, video)
+            if size is not None:
+                upload_sizes[video["id"]] = size
+    hits = collect_matches(videos, queries, upload_sizes=upload_sizes)
+    matches: list[ExistingMatch] = []
+    for hit in hits:
+        video = hit.video
+        job = store.get_job(video["id"]) or {}
+        matches.append(
+            ExistingMatch(
+                item_index=hit.item_index,
+                id=video["id"],
+                filename=video.get("filename") or "",
+                source_type=video.get("source_type") or "",
+                source_url=video.get("source_url") or None,
+                status=video.get("status") or "pending",
+                progress=job.get("progress") or 0,
+                upload_time=video.get("upload_time"),
+                match_reason=hit.match_reason,
+                size_matched=hit.size_matched,
+            )
+        )
+    return ExistingLookupResponse(matches=matches)
 
 
 @router.get("", response_model=VideoListResponse)
@@ -707,6 +755,29 @@ async def retranscribe_locally(
     return VideoCreateResponse(id=video_id, status="pending")
 
 
+def _existing_media_size(settings, video: dict) -> int | None:
+    """Byte size of an already-written media file, without creating work dirs."""
+    path = _peek_media_path(settings, video)
+    if path is None:
+        return None
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
+def _peek_media_path(settings, video: dict) -> Path | None:
+    path = video.get("local_media_path")
+    media_path = Path(path) if path else None
+    if media_path and media_path.exists():
+        return media_path
+    work = settings.media_dir / video["id"]
+    if not work.exists():
+        return None
+    candidates = [p for p in work.glob("media.*") if p.is_file()]
+    return candidates[0] if candidates else None
+
+
 def _resolve_media_path(settings, video: dict) -> Path | None:
     """Locate the media file kept on disk for a video, or None if it is gone.
 
@@ -714,11 +785,11 @@ def _resolve_media_path(settings, video: dict) -> Path | None:
     but the row can outlive the file if it was cleaned up by hand, so callers
     must treat a missing file as a normal case.
     """
-    path = video.get("local_media_path")
-    media_path = Path(path) if path else None
-    if media_path and media_path.exists():
-        return media_path
-    # fallback to work dir media.*
+    found = _peek_media_path(settings, video)
+    if found is not None:
+        return found
+    # Creating the work dir is only for callers that will write into it next;
+    # a missing folder still means there is no media file.
     work = video_work_dir(settings, video["id"])
     candidates = list(work.glob("media.*"))
     candidate = candidates[0] if candidates else None

@@ -1004,6 +1004,38 @@ button.tag-chip {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
 
+.dup-dialog h2 {
+  margin-top: 0;
+}
+
+.dup-inline {
+  margin: 0.85rem 0 1rem;
+  padding: 0.85rem 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.dup-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.85rem 0 0;
+}
+
+.dup-list li {
+  border-bottom: 1px solid var(--line);
+  padding: 0.65rem 0;
+}
+
+.dup-list li:last-child {
+  border-bottom: none;
+}
+
+.dup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 @media (max-width: 640px) {
   .list li {
     flex-direction: column;

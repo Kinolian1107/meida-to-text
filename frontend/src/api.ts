@@ -138,6 +138,26 @@ export type AccountItem = {
   status: string;
 };
 
+export type ExistingLookupItem = {
+  source_type: "youtube" | "direct_url" | "google_drive" | "upload";
+  url?: string;
+  filename?: string;
+  size?: number;
+};
+
+export type ExistingMatch = {
+  item_index: number;
+  id: string;
+  filename: string;
+  source_type: string;
+  source_url: string | null;
+  status: string;
+  progress: number;
+  upload_time: string | null;
+  match_reason: "youtube_id" | "drive_id" | "url" | "filename";
+  size_matched: boolean | null;
+};
+
 export type CrossPoint = { text: string; sources: string[] };
 export type CrossAnalysisItem = {
   id: string;
@@ -233,6 +253,12 @@ export const api = {
     req<{ ok: boolean }>(`/api/prompts/summary/${id}`, { method: "DELETE" }),
   probeYoutube: (url: string) =>
     req<YoutubeProbe>(`/api/youtube/probe?url=${encodeURIComponent(url)}`),
+  lookupExisting: (items: ExistingLookupItem[]) =>
+    req<{ matches: ExistingMatch[] }>("/api/videos/lookup-existing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    }),
   fromYoutube: (url: string, topic: string, hotwords: string, account_id?: string) =>
     req<{ id: string }>(`/api/videos/from-youtube`, {
       method: "POST",

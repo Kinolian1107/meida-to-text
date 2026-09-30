@@ -425,6 +425,8 @@ def fetch_youtube(
         "local_media_path": str(media_path),
         "title": probe.get("title"),
         "duration_sec": probe.get("duration_sec"),
+        "id": probe.get("id"),
+        "channel": probe.get("channel"),
         "used_account": None,
     }
     (out_dir / "meta.json").write_text(
